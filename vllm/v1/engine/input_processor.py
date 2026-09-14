@@ -3,7 +3,7 @@
 
 import time
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import vllm.envs as envs
 from vllm.config import VllmConfig
@@ -341,11 +341,17 @@ class InputProcessor:
             isinstance(params, SamplingParams)
             and (params.extra_args or {}).get("pic_compile") is not None
         ):
-            from vllm.v1.engine.pic_compiler import compile_token_ids
+            from vllm.v1.engine.pic_compiler import compile_prompt
 
-            decoder_input = decoder_input.copy()
-            decoder_input["prompt_token_ids"] = compile_token_ids(
-                decoder_input["prompt_token_ids"], self.cache_config.block_size
+            decoder_input = cast(
+                SingletonInput,
+                dict(
+                    decoder_input,
+                    **compile_prompt(
+                        cast(dict[str, Any], params.extra_args)["pic_compile"],
+                        self.cache_config.block_size,
+                    ),
+                ),
             )
         self._validate_model_inputs(encoder_input, decoder_input)
 
@@ -425,12 +431,17 @@ class InputProcessor:
                     )
                 )
 
+        pic_compile = None
+        if sampling_params is not None and sampling_params.extra_args:
+            pic_compile = sampling_params.extra_args.pop("pic_compile", None)
+
         return EngineCoreRequest(
             request_id=request_id,
             prompt_token_ids=prompt_token_ids,
             prompt_embeds=prompt_embeds,
             prompt_is_token_ids=prompt_is_token_ids,
             reusable_input=decoder_input.get("reusable_input"),
+            pic_compile=pic_compile,
             mm_features=mm_features,
             sampling_params=sampling_params,
             pooling_params=pooling_params,

@@ -1005,14 +1005,11 @@ class EngineCore:
                 for content in request.reusable_input.contents
             ]
         params = request.sampling_params
-        if (
-            params is not None
-            and params.extra_args
-            and "pic_compile" in params.extra_args
-        ):
-            params.extra_args["pic_compile"] = prepare_content(
-                params.extra_args["pic_compile"], model, groups
-            )
+        if request.pic_compile is not None and params is not None:
+            params.extra_args = {
+                **(params.extra_args or {}),
+                "pic_compile": prepare_content(request.pic_compile, model, groups),
+            }
         req = Request.from_engine_core_request(request, self.request_block_hasher)
         if req.use_structured_output:
             # Note on thread safety: no race condition.

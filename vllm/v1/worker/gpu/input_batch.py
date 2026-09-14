@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -354,7 +354,7 @@ def _prepare_pos_seq_lens_kernel(
 
     seq_len = num_computed_tokens + query_len
     tl.store(seq_lens_ptr + req_id, seq_len)
-    position_map: Any = 0
+    position_map = tl.full((), 0, tl.int64)
     if position_map_ptrs is not None:
         position_map = tl.load(position_map_ptrs + req_state_idx)
 

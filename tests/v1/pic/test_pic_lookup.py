@@ -5,6 +5,7 @@
 
 import json
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import torch
@@ -134,6 +135,7 @@ def input_processor(tmp_path):
                 skip_tokenizer_init=True,
                 dtype="float32",
                 max_model_len=64,
+                enable_prompt_embeds=True,
             ),
             cache_config=CacheConfig(block_size=4),
         )
@@ -141,10 +143,12 @@ def input_processor(tmp_path):
 
 
 @pytest.mark.parametrize("num_tokens", [3, 4, 5])
+@pytest.mark.parametrize("soft_lengths", [(0, 0), (2, 3)])
 def test_engine_builds_pages_from_sources_and_transports_only_layout(
     manager,
     input_processor,
     num_tokens,
+    soft_lengths,
 ):
     from vllm.v1.core.pic import PICLayout, ReusableInput
     from vllm.v1.engine import EngineCoreRequest
@@ -157,12 +161,18 @@ def test_engine_builds_pages_from_sources_and_transports_only_layout(
     engine.vllm_config = input_processor.vllm_config
     engine.scheduler = SimpleNamespace(kv_cache_config=manager.kv_cache_config)
     engine.request_block_hasher = get_request_block_hasher(4, sha256)
-    source = {
+    source: dict[str, Any] = {
         "content_id": "doc",
         "input_ids": list(range(20, 20 + num_tokens)),
         "method_id": "identity",
         "writer": None,
     }
+    pre, post = soft_lengths
+    if pre or post:
+        source["writer_soft_tokens"] = {
+            "pre": torch.full((pre, 64), 0.25),
+            "post": torch.full((post, 64), 0.75),
+        }
     ids, params, _ = compile_inputs(source)
     params.extra_args["custom_sampler"] = "preserved"
     wire = input_processor.process_inputs(
@@ -171,8 +181,11 @@ def test_engine_builds_pages_from_sources_and_transports_only_layout(
         params,
         ("generate",),
     )
-    capacity = (num_tokens + 3) // 4 * 4
-    assert wire.prompt_token_ids == ids + [0] * (capacity - num_tokens + 1)
+    length = pre + num_tokens + post
+    capacity = (length + 3) // 4 * 4
+    assert wire.prompt_token_ids == [0] * pre + ids + [0] * (
+        capacity - pre - num_tokens + 1
+    )
     assert ids == source["input_ids"]
     decoder = MsgpackDecoder(EngineCoreRequest)
     writer, _ = engine.preprocess_add_request(
@@ -180,12 +193,25 @@ def test_engine_builds_pages_from_sources_and_transports_only_layout(
     )
     assert writer.pic_compile["groups"][0]["num_slots"] == capacity
     assert writer.sampling_params.extra_args == {"custom_sampler": "preserved"}
+    if pre or post:
+        assert writer.prompt_is_token_ids == (
+            [False] * pre
+            + [True] * num_tokens
+            + [False] * post
+            + [True] * (capacity - length + 1)
+        )
+        torch.testing.assert_close(
+            writer.prompt_embeds[:pre], source["writer_soft_tokens"]["pre"]
+        )
+        torch.testing.assert_close(
+            writer.prompt_embeds[pre + num_tokens : length],
+            source["writer_soft_tokens"]["post"],
+        )
     cache(manager, writer)
 
-    tokens = [1, *ids, 2, *ids, 3]
-    reusable = ReusableInput(
-        [source], [(1, num_tokens, 0), (num_tokens + 2, num_tokens, 0)]
-    )
+    wrapped = [0] * pre + ids + [0] * post
+    tokens = [1, *wrapped, 2, *wrapped, 3]
+    reusable = ReusableInput([source], [(1, length, 0), (length + 2, length, 0)])
     wire = input_processor.process_inputs(
         "reader",
         {"type": "token", "prompt_token_ids": tokens, "reusable_input": reusable},
@@ -204,7 +230,7 @@ def test_engine_builds_pages_from_sources_and_transports_only_layout(
         MsgpackEncoder().encode(reader.pic_layout)
     )
     assert len(layout.contents) == 1
-    assert layout.contents[0].length == num_tokens
+    assert layout.contents[0].length == length
     assert layout.contents[0].entry_positions == {}
     assert layout.occurrences[0].segments == layout.occurrences[1].segments
     assert "groups" not in source
@@ -230,6 +256,44 @@ def test_compile_padding_is_checked_against_native_prompt_limit(input_processor)
     with pytest.raises(VLLMValidationError, match="maximum model length"):
         input_processor.process_inputs("writer", prompt, params, ("generate",))
     assert len(prompt["prompt_token_ids"]) == 63
+
+
+def test_writer_embeddings_and_their_placement_separate_native_pages(manager):
+    from vllm.v1.engine.pic_compiler import prepare_content
+
+    model = SimpleNamespace(
+        dtype=torch.float32, hf_text_config=SimpleNamespace(num_hidden_layers=1)
+    )
+    source = {
+        "content_id": "doc",
+        "input_ids": [0, 0, 0],
+        "method_id": "writer",
+        "writer": None,
+    }
+
+    def compile_metadata(ids, soft):
+        return prepare_content(
+            {**source, "input_ids": ids, "writer_soft_tokens": soft},
+            model,
+            manager.kv_cache_config.kv_cache_groups,
+        )
+
+    pre = torch.ones(1, 64)
+    original = compile_metadata([0, 0, 0], {"pre": pre})
+    alias = compile_metadata([0, 0, 0], {"pre": pre.clone()})
+    assert original["compiled_id"] == alias["compiled_id"]
+    assert original["groups"] == alias["groups"]
+    for soft in ({"pre": pre * 2}, {"post": pre}, {}):
+        changed = compile_metadata([0, 0, 0], soft)
+        assert original["compiled_id"] != changed["compiled_id"]
+        assert (
+            original["groups"][0]["block_hashes"]
+            != changed["groups"][0]["block_hashes"]
+        )
+    # Zero-valued document tokens cannot impersonate Post embedding rows.
+    short = compile_metadata([0, 0, 0], {"post": pre})
+    long = compile_metadata([0, 0, 0, 0], {"post": pre})
+    assert short["groups"][0]["block_hashes"][0] != long["groups"][0]["block_hashes"][0]
 
 
 @pytest.mark.parametrize(
@@ -562,7 +626,7 @@ def test_missing_documents_enqueue_together_but_hits_and_pending_loads_do_not(
     from vllm.v1.engine.pic_compiler import compile_inputs, compile_token_ids
     from vllm.v1.kv_offload.base import ReqContext, make_offload_key
 
-    documents = [
+    documents: list[dict[str, Any]] = [
         {
             "compiled_id": name,
             "method_id": "writer",
@@ -580,6 +644,11 @@ def test_missing_documents_enqueue_together_but_hits_and_pending_loads_do_not(
         }
         for name in ("missing-a", "gpu", "cpu", "pending", "missing-b")
     ]
+    documents[0]["input_ids"] = [21]
+    documents[0]["writer_soft_tokens"] = {
+        "pre": torch.full((1, 64), 0.25),
+        "post": torch.full((1, 64), 0.75),
+    }
     ids, params, lora = compile_inputs(documents[1])
     ids = compile_token_ids(ids, 4)
     cache(
@@ -627,6 +696,12 @@ def test_missing_documents_enqueue_together_but_hits_and_pending_loads_do_not(
     assert defer_missing_content(scheduler, reader, 4)
     assert [child.pic_compile["compiled_id"] for child in queued] == expected
     assert all(child.pic_internal for child in queued)
+    if not already_compiling:
+        child = queued[0]
+        assert child.prompt_token_ids == [0, 21, 0, 0, 0]
+        assert child.prompt_is_token_ids == [False, True, False, True, True]
+        torch.testing.assert_close(child.prompt_embeds[0], torch.full((64,), 0.25))
+        torch.testing.assert_close(child.prompt_embeds[2], torch.full((64,), 0.75))
     assert defer_missing_content(scheduler, reader, 4)
     assert len(queued) == len(expected)
     # Once writes complete, normal connector loading can admit the Reader.

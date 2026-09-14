@@ -7,6 +7,8 @@ from itertools import accumulate
 from typing import TYPE_CHECKING, Any, cast
 
 import msgspec
+import torch
+from typing_extensions import NotRequired, TypedDict
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -16,8 +18,16 @@ if TYPE_CHECKING:
     from vllm.v1.request import Request
 
 
+class ReusableContent(TypedDict):
+    content_id: str
+    input_ids: list[int]
+    method_id: str
+    writer: dict[str, Any] | None
+    writer_soft_tokens: NotRequired[dict[str, torch.Tensor]]
+
+
 class ReusableInput(msgspec.Struct):
-    contents: list[dict[str, Any]]
+    contents: list[ReusableContent]
     # (canonical position, logical length, content index).
     spans: list[tuple[int, int, int]]
 
@@ -72,7 +82,7 @@ def defer_missing_content(
     scheduler, request: "Request", num_computed_tokens: int
 ) -> bool:
     """Enqueue all confirmed missing documents on this Reader's native engine."""
-    from vllm.v1.engine.pic_compiler import compile_inputs, compile_token_ids
+    from vllm.v1.engine.pic_compiler import compile_inputs, compile_prompt
     from vllm.v1.kv_offload.base import LookupResult, make_offload_key
     from vllm.v1.request import Request
 
@@ -120,14 +130,16 @@ def defer_missing_content(
                 break
         if not missing:
             continue
-        ids, params, lora = compile_inputs(content, internal=True)
-        ids = compile_token_ids(ids, content["groups"][0]["block_size"])
+        _, params, lora = compile_inputs(content, internal=True)
+        prompt = compile_prompt(content, content["groups"][0]["block_size"])
         child = Request(
             f"pic:{compiled_id}",
-            ids,
+            prompt["prompt_token_ids"],
             params,
             None,
             lora_request=lora,
+            prompt_embeds=prompt.get("prompt_embeds"),
+            prompt_is_token_ids=prompt.get("is_token_ids"),
             block_hasher=request._block_hasher,
             arrival_time=request.arrival_time,
             priority=request.priority,
