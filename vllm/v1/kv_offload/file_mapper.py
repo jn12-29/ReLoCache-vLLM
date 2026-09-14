@@ -40,6 +40,7 @@ class FileMapper:
         parallel_agnostic: bool = False,
         replicated_layout: bool = False,
         canonical_format: str | None = None,
+        key_encoding: str = "rope",
     ):
         """
         Initialize the file mapper. Each worker constructs its own, but
@@ -62,6 +63,7 @@ class FileMapper:
             "dtype": str(dtype),
             "kv_cache_groups": kv_cache_groups or [],
             "inference_engine": inference_engine,
+            "key_encoding": key_encoding,
         }
         if not parallel_agnostic:
             self.fields["parallel_agnostic"] = False
@@ -116,6 +118,7 @@ class FileMapper:
             ),
             replicated_layout=(parallel_agnostic and config.replicated_layout),
             canonical_format=canonical_format,
+            key_encoding=config.extra_config.get("key_encoding", "rope"),
         )
 
     def get_file_name(self, key: OffloadKey) -> str:

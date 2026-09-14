@@ -306,6 +306,9 @@ class TieringOffloadingSpec(CPUOffloadingSpec):
                     cpu_page_size=self.cpu_page_size_per_worker,
                 )
                 self._scheduler_mmap = scheduler_mmap
+                # Worker KV initialization finishes before scheduler creation.
+                # All mappings now exist; the kernel can reclaim them on exit.
+                scheduler_mmap.unlink()
 
                 # Create primary tier (CPU-based)
                 primary_tier = CPUPrimaryTierOffloadingManager(

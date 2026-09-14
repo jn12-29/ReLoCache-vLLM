@@ -19,6 +19,7 @@ from vllm.v1.worker.gpu.mm.rope import get_rope_state
 from vllm.v1.worker.gpu.model_states.interface import ModelState
 from vllm.v1.worker.gpu.model_states.mm_pruning import maybe_create_mm_pruner
 from vllm.v1.worker.gpu.model_states.prompt_embeds import PromptEmbedsState
+from vllm.v1.worker.gpu.pic import PICModelState
 from vllm.v1.worker.gpu.states import RequestState
 from vllm.v1.worker.utils import AttentionGroup
 
@@ -34,6 +35,7 @@ class DefaultModelState(ModelState):
         device: torch.device,
     ):
         super().__init__(vllm_config, model, encoder_cache, device)
+        self.pic_state = PICModelState(self.max_num_reqs, self.max_num_tokens, device)
 
         self.prompt_embeds_state: PromptEmbedsState | None = None
         if self.model_config.enable_prompt_embeds:
@@ -62,6 +64,7 @@ class DefaultModelState(ModelState):
         )
 
     def add_request(self, req_index: int, new_req_data: NewRequestData) -> None:
+        self.pic_state.add_request(req_index, new_req_data)
         if self.rope_state is not None:
             assert new_req_data.prefill_token_ids is not None
             # `prompt_embeds` is a passthrough modality with no grid info, but
@@ -79,10 +82,12 @@ class DefaultModelState(ModelState):
             self.prompt_embeds_state.add_request(req_index, new_req_data)
 
     def remove_request(self, req_id: str) -> None:
+        self.pic_state.remove_request(req_id)
         if self.prompt_embeds_state is not None:
             self.prompt_embeds_state.remove_request(req_id)
 
     def apply_staged_writes(self) -> None:
+        self.pic_state.apply_staged_writes()
         if self.rope_state is not None:
             self.rope_state.apply_staged_writes()
         if self.prompt_embeds_state is not None:
@@ -144,7 +149,11 @@ class DefaultModelState(ModelState):
         self, input_batch: InputBatch, req_states: RequestState
     ) -> dict[str, torch.Tensor | None]:
         if self.rope_state is None:
-            return {}  # Common case (1D positions).
+            return {
+                "positions": self.pic_state.positions[
+                    : input_batch.num_tokens_after_padding
+                ]
+            }
 
         self.rope_state.prepare_positions(
             input_batch.idx_mapping,
@@ -156,7 +165,7 @@ class DefaultModelState(ModelState):
         return {"positions": positions}
 
     def prepare_dummy_inputs(self, num_reqs: int, num_tokens: int) -> dict[str, Any]:
-        model_inputs = {}
+        model_inputs = {"positions": self.pic_state.positions[:num_tokens]}
         if self.supports_mm_inputs or self.prompt_embeds_state is not None:
             model_inputs["inputs_embeds"] = self.dummy_inputs_embeds(num_tokens)
         if self.rope_state is not None:
@@ -227,4 +236,4 @@ class DefaultModelState(ModelState):
             rswa_prefix_lens=input_batch.prompt_lens,
             ubatch_idx=ubatch_idx,
         )
-        return attn_metadata
+        return self.pic_state.prepare_metadata(attn_metadata, input_batch, self.model)

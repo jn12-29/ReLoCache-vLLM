@@ -337,6 +337,16 @@ class InputProcessor:
         current_platform.validate_request(engine_input, params)
 
         encoder_input, decoder_input = split_enc_dec_input(engine_input)
+        if (
+            isinstance(params, SamplingParams)
+            and (params.extra_args or {}).get("pic_compile") is not None
+        ):
+            from vllm.v1.engine.pic_compiler import compile_token_ids
+
+            decoder_input = decoder_input.copy()
+            decoder_input["prompt_token_ids"] = compile_token_ids(
+                decoder_input["prompt_token_ids"], self.cache_config.block_size
+            )
         self._validate_model_inputs(encoder_input, decoder_input)
 
         # Mypy can be conservative for TypedDict unions; normalize access.
@@ -420,6 +430,7 @@ class InputProcessor:
             prompt_token_ids=prompt_token_ids,
             prompt_embeds=prompt_embeds,
             prompt_is_token_ids=prompt_is_token_ids,
+            reusable_input=decoder_input.get("reusable_input"),
             mm_features=mm_features,
             sampling_params=sampling_params,
             pooling_params=pooling_params,

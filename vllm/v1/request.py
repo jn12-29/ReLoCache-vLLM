@@ -6,14 +6,16 @@ import time
 from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+import msgspec
 import torch
 
 from vllm.multimodal.inputs import MultiModalFeatureSpec
 from vllm.pooling_params import PoolingParams
 from vllm.sampling_params import SamplingParams
 from vllm.utils import length_from_prompt_token_ids_or_embeds
+from vllm.v1.core.pic import PICLayout, ReusableSpan, inline_ranges
 from vllm.v1.engine import (
     EngineCoreEvent,
     EngineCoreEventType,
@@ -78,10 +80,23 @@ class Request:
         reasoning_ended: bool | None = None,
         reasoning_parser_kwargs: dict[str, Any] | None = None,
         abort_immediately: bool = False,
+        reusable_spans: list[ReusableSpan] | None = None,
     ) -> None:
         self.request_id = request_id
         self.client_index = client_index
         self.priority = priority
+        extras = (sampling_params.extra_args or {}) if sampling_params else {}
+        self.pic_compile = extras.get("pic_compile")
+        self.pic_internal = extras.get("pic_internal", False)
+        if self.pic_compile is not None:
+            sampling_params = msgspec.structs.replace(
+                sampling_params,
+                extra_args={
+                    key: value
+                    for key, value in extras.items()
+                    if key not in ("pic_compile", "pic_internal")
+                },
+            )
         self.sampling_params = sampling_params
         self.pooling_params = pooling_params
         self.lora_request = lora_request
@@ -130,6 +145,26 @@ class Request:
             raise ValueError("sampling_params and pooling_params can't both be unset")
 
         self.prompt_token_ids = prompt_token_ids
+        self.reusable_spans = reusable_spans or []
+        self.canonical_prompt_token_ids = prompt_token_ids
+        self.pic_layout: PICLayout | None = None
+        self._pic_inline_hashes: list[BlockHash] = []
+        self._pic_hash_block_size = 0
+        self._pic_inline_prompt_token_ids = (
+            [
+                (
+                    token
+                    if prompt_is_token_ids is None or prompt_is_token_ids[index]
+                    else 0
+                )
+                for start, end in inline_ranges(self)
+                for index, token in enumerate(
+                    cast("list[int]", prompt_token_ids)[start:end], start
+                )
+            ]
+            if self.reusable_spans
+            else []
+        )
         self.prompt_embeds = prompt_embeds
         # Per-position mask used in mixed-mode (chat completion with
         # prompt_embeds). `None` except when both `prompt_token_ids` and
@@ -260,6 +295,14 @@ class Request:
             reasoning_ended=request.reasoning_ended,
             reasoning_parser_kwargs=request.reasoning_parser_kwargs,
             abort_immediately=request.abort_immediately,
+            reusable_spans=(
+                [
+                    ReusableSpan(start, length, request.reusable_input.contents[index])
+                    for start, length, index in request.reusable_input.spans
+                ]
+                if request.reusable_input is not None
+                else None
+            ),
         )
 
     def append_output_token_ids(

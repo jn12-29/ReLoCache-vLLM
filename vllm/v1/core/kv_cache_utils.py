@@ -808,6 +808,13 @@ def get_request_block_hasher(
     """
 
     def request_block_hasher(request: Request) -> list[BlockHash]:
+        if request.pic_compile is not None:
+            hashes = request.pic_compile["groups"][0]["block_hashes"]
+            return hashes[len(request.block_hashes) :]
+        if request.reusable_spans:
+            from vllm.v1.core.pic import hash_reusable_request
+
+            return hash_reusable_request(request, hash_block_size, caching_hash_fn)
         start_token_idx = len(request.block_hashes) * hash_block_size
         num_tokens = request.num_tokens
 

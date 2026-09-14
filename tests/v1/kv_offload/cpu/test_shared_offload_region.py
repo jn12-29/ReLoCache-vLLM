@@ -41,7 +41,7 @@ def _make_region(
     num_blocks: int = 4,
     cpu_page_size: int = PAGE_SIZE,
     num_workers: int = 1,
-    rank: int = 0,
+    rank: int | None = 0,
     barrier=None,
 ) -> SharedOffloadRegion:
     assert cpu_page_size % PAGE_SIZE == 0
@@ -709,6 +709,19 @@ def test_multiprocess_race_construct_and_write(iid):
 # ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------
+
+
+def test_scheduler_unlink_preserves_existing_worker_mapping(iid):
+    worker = _make_region(iid, rank=None)
+    scheduler = _make_region(iid, rank=None)
+    try:
+        scheduler.unlink()
+        assert not os.path.exists(worker.mmap_path)
+        worker.mmap_obj[0] = 17
+        assert scheduler.mmap_obj[0] == 17
+    finally:
+        scheduler.cleanup()
+        worker.cleanup()
 
 
 def test_cleanup_creator_all_effects(iid):

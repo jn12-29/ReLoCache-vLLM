@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import time
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, TypeAlias
@@ -155,6 +155,12 @@ class OnlineRenderer:
         self.trust_request_chat_template = trust_request_chat_template
 
         self.log_error_stack = log_error_stack
+        self.chat_input_renderer: (
+            Callable[
+                ..., Awaitable[tuple[list[ConversationMessage], EngineInput] | None]
+            ]
+            | None
+        ) = None
         self.supports_browsing = False
         self.supports_code_interpreter = False
 
@@ -681,13 +687,30 @@ class OnlineRenderer:
             default_mm_processor_kwargs=getattr(request, "mm_processor_kwargs", None),
         )
 
+        custom_input = None
+        if self.chat_input_renderer is not None:
+            custom_input = await self.chat_input_renderer(
+                renderer,
+                messages,
+                chat_params,
+                tok_params,
+                prompt_extras={
+                    k: v
+                    for k in ("mm_processor_kwargs", "cache_salt")
+                    if (v := getattr(request, k, None)) is not None
+                },
+                skip_mm_cache=skip_mm_cache,
+            )
         reuse_ids = _reused_prompt_token_ids(request)
-        if reuse_ids:
+        conversation: list[ConversationMessage]
+        if custom_input is not None:
+            conversation, engine_input = custom_input
+        elif reuse_ids:
             # Decode-side token reuse: feed the forwarded ids straight to the
             # engine, skipping templating and tokenization. ``messages`` are not
             # tokenized, so conversation is empty. The adjust_request tail below
             # still runs.
-            conversation: list[ConversationMessage] = []
+            conversation = []
             engine_input = tokens_input(
                 reuse_ids, cache_salt=getattr(request, "cache_salt", None)
             )

@@ -390,6 +390,10 @@ class RequestOffloadState:
         for group_config, group_state in zip(
             self.config.kv_group_configs, self.group_states
         ):
+            previous_keys = None
+            if self.req.reusable_spans:
+                previous_keys = group_state.offload_keys
+                group_state.offload_keys = []
             for req_block_hash in islice(
                 self.req.block_hashes,
                 group_config.hashes_per_chunk * len(group_state.offload_keys)
@@ -401,6 +405,11 @@ class RequestOffloadState:
                 group_state.offload_keys.append(
                     make_offload_key(req_block_hash, group_config.group_idx)
                 )
+            if (
+                previous_keys is not None
+                and group_state.offload_keys[: len(previous_keys)] != previous_keys
+            ):
+                group_state.next_stored_chunk_idx = 0
 
     def update_block_id_groups(
         self, new_block_id_groups: tuple[list[int], ...] | None
@@ -521,6 +530,7 @@ def _create_req_context(req: Request) -> ReqContext:
         req_id=req.request_id,
         kv_transfer_params=params,
         load_tier_filter=load_filter,
+        require_load=bool(req.reusable_spans),
     )
 
 

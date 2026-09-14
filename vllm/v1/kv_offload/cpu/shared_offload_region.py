@@ -5,6 +5,7 @@ import mmap
 import os
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -175,8 +176,7 @@ class SharedOffloadRegion:
                 os.close(self.fd)
                 raise
             if self._creator:
-                os.unlink(self.mmap_path)
-                self._creator = False
+                self.unlink()
                 logger.info("Unlinked mmap file %s", self.mmap_path)
 
         populate_write_fn = _get_populate_write_fn(self.mmap_obj)
@@ -307,6 +307,11 @@ class SharedOffloadRegion:
         )
         return memoryview(np_arr)
 
+    def unlink(self) -> None:
+        """Drop the name once all users have mapped the shared region."""
+        Path(self.mmap_path).unlink(missing_ok=True)
+        self._creator = False
+
     def cleanup(self) -> None:
         if self.is_pinned and self._base is not None:
             if current_platform.is_cuda_alike():
@@ -340,7 +345,7 @@ class SharedOffloadRegion:
             self.fd = None
         if self._creator and getattr(self, "mmap_path", None):
             try:
-                os.unlink(self.mmap_path)
+                self.unlink()
                 logger.info("Removed mmap file %s", self.mmap_path)
             except Exception:
                 logger.warning(

@@ -358,9 +358,10 @@ class TieringOffloadingManager(OffloadingManager):
             HIT       — block is ready in the primary tier.
             HIT_PENDING — block found but not yet readable (write
                         in-flight on the primary tier).
-            RETRY     — promotion started or a secondary tier is busy.
-            MISS      — block not found in any tier, or primary is full
-                        and cannot accept a promotion.
+            RETRY     — a secondary tier is busy, or a required load is
+                        waiting for primary capacity.
+            MISS      — block not found in any tier, or an optional load
+                        cannot allocate primary capacity.
         """
         # Poll first so a promotion that finished since the last call is
         # already reflected as HIT (not stale HIT_PENDING/MISS) below, and
@@ -402,7 +403,11 @@ class TieringOffloadingManager(OffloadingManager):
                     lookup_duration,
                 )
                 promoted = self._initiate_promotion(i, key, req_context)
-                return LookupResult.MISS if not promoted else LookupResult.HIT_PENDING
+                if promoted:
+                    return LookupResult.HIT_PENDING
+                if req_context.require_load:
+                    return LookupResult.RETRY
+                return LookupResult.MISS
             if result is LookupResult.RETRY:
                 any_retry = True
             self._metrics.on_lookup(
@@ -447,8 +452,7 @@ class TieringOffloadingManager(OffloadingManager):
         primary_write_result = self.primary_tier.prepare_write([key], req_context)
 
         if primary_write_result is None:
-            # Primary tier is full; caller should treat the block as unavailable
-            # rather than retrying indefinitely.
+            # The caller decides whether a capacity-bound load is mandatory.
             self._metrics.on_promotion_allocation_failure()
             return False
 

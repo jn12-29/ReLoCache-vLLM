@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
@@ -330,6 +330,8 @@ def _prepare_pos_seq_lens_kernel(
     idx_mapping_ptr,
     query_start_loc_ptr,
     num_computed_tokens_ptr,
+    position_map_ptrs,
+    canonical_positions_ptr,
     max_num_reqs,
     BLOCK_SIZE: tl.constexpr,
 ):
@@ -352,12 +354,24 @@ def _prepare_pos_seq_lens_kernel(
 
     seq_len = num_computed_tokens + query_len
     tl.store(seq_lens_ptr + req_id, seq_len)
+    position_map: Any = 0
+    if position_map_ptrs is not None:
+        position_map = tl.load(position_map_ptrs + req_state_idx)
 
     for i in tl.range(0, query_len, BLOCK_SIZE):
         block = i + tl.arange(0, BLOCK_SIZE)
         mask = block < query_len
         pos = num_computed_tokens + block
         tl.store(pos_ptr + start + block, pos, mask=mask)
+        if canonical_positions_ptr is not None:
+            canonical_pos = pos.to(tl.int64)
+            if position_map != 0:
+                canonical_pos = tl.load(
+                    position_map.to(tl.pointer_type(tl.int64)) + pos,
+                    mask=mask,
+                    other=0,
+                )
+            tl.store(canonical_positions_ptr + start + block, canonical_pos, mask=mask)
 
 
 def prepare_pos_seq_lens(
@@ -366,6 +380,8 @@ def prepare_pos_seq_lens(
     num_computed_tokens: torch.Tensor,
     pos: torch.Tensor,
     seq_lens: torch.Tensor,
+    position_map_ptrs: torch.Tensor | None = None,
+    canonical_positions: torch.Tensor | None = None,
 ) -> None:
     num_reqs = idx_mapping.shape[0]
     # NOTE(woosuk): We do +1 because the last thread block is used
@@ -376,6 +392,8 @@ def prepare_pos_seq_lens(
         idx_mapping,
         query_start_loc,
         num_computed_tokens,
+        position_map_ptrs,
+        canonical_positions,
         seq_lens.shape[0],
         BLOCK_SIZE=1024,
     )

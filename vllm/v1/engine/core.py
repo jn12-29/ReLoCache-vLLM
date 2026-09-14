@@ -105,6 +105,9 @@ _R = TypeVar("_R")  # Return type for collective_rpc
 class EngineCore:
     """Inner loop of vLLM's Engine."""
 
+    def reusable_storage_pending(self) -> bool:
+        return self.scheduler.has_requests()
+
     def __init__(
         self,
         vllm_config: VllmConfig,
@@ -991,6 +994,25 @@ class EngineCore:
                 request.mm_features
             )
 
+        from vllm.v1.core.sched.scheduler import Scheduler
+        from vllm.v1.engine.pic_compiler import prepare_content
+
+        model = self.vllm_config.model_config
+        groups = cast(Scheduler, self.scheduler).kv_cache_config.kv_cache_groups
+        if request.reusable_input is not None:
+            request.reusable_input.contents = [
+                prepare_content(content, model, groups)
+                for content in request.reusable_input.contents
+            ]
+        params = request.sampling_params
+        if (
+            params is not None
+            and params.extra_args
+            and "pic_compile" in params.extra_args
+        ):
+            params.extra_args["pic_compile"] = prepare_content(
+                params.extra_args["pic_compile"], model, groups
+            )
         req = Request.from_engine_core_request(request, self.request_block_hasher)
         if req.use_structured_output:
             # Note on thread safety: no race condition.

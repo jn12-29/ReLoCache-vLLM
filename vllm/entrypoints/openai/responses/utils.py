@@ -324,6 +324,11 @@ def _construct_message_from_response_item(
         )
     elif isinstance(item, dict) and item.get("role") == "assistant":
         content = item.get("content")
+        if isinstance(content, list) and any(
+            part.get("type") in ("reusable_content", "prompt_embeds")
+            for part in content
+        ):
+            return item
         text: str | None = None
         if isinstance(content, str):
             text = content

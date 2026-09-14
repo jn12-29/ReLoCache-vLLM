@@ -1597,15 +1597,14 @@ class DPLBAsyncMPClient(DPAsyncMPClient):
         return chosen_engine
 
     async def call_utility_async(self, method: str, *args) -> Any:
-        # Only the result from the first engine is returned.
-        return (
-            await asyncio.gather(
-                *[
-                    self._call_utility_async(method, *args, engine=engine)
-                    for engine in self.core_engines
-                ]
-            )
-        )[0]
+        # Storage draining must account for every replica.
+        results = await asyncio.gather(
+            *[
+                self._call_utility_async(method, *args, engine=engine)
+                for engine in self.core_engines
+            ]
+        )
+        return any(results) if method == "reusable_storage_pending" else results[0]
 
     @staticmethod
     async def process_engine_outputs(

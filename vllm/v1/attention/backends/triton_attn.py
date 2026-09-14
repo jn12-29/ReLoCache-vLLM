@@ -94,6 +94,16 @@ class TritonAttentionMetadata:
     mm_prefix_range_tensor: torch.Tensor | None = None
     rswa_prefix_lens: torch.Tensor | None = None
     rswa_window: int | None = None
+    # Stable per-sequence GPU pointer table; zero selects ordinary attention.
+    # Each target is int64[R, 4]: cumulative entry end, physical slot start,
+    # canonical start, local float32 position pointer (zero for contiguous positions).
+    logical_ranges: torch.Tensor | None = None
+    logical_range_counts: torch.Tensor | None = None
+    query_positions: torch.Tensor | None = None
+    rope_inv_freq: torch.Tensor | None = None
+    cos_sin_cache: torch.Tensor | None = None
+    rope_is_neox_style: bool = True
+    rope_attention_scaling: float = 1.0
 
 
 class TritonAttentionMetadataBuilder(AttentionMetadataBuilder[TritonAttentionMetadata]):
@@ -650,6 +660,13 @@ class TritonAttentionImpl(AttentionImpl):
         mm_prefix_range_tensor = attn_metadata.mm_prefix_range_tensor
 
         unified_attention(
+            logical_ranges=attn_metadata.logical_ranges,
+            logical_range_counts=attn_metadata.logical_range_counts,
+            query_positions=attn_metadata.query_positions,
+            rope_inv_freq=attn_metadata.rope_inv_freq,
+            cos_sin_cache=attn_metadata.cos_sin_cache,
+            rope_is_neox_style=attn_metadata.rope_is_neox_style,
+            rope_attention_scaling=attn_metadata.rope_attention_scaling,
             q=query[:num_actual_tokens],
             k=key_cache,
             v=value_cache,
