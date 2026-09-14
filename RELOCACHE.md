@@ -6,6 +6,10 @@ The initial Native PIC source was extracted from `sempic_iclr` commit `642fb31bf
 
 The `upstream` remote points to `https://github.com/vllm-project/vllm.git`; `origin` points to the private fork at `git@github.com:jn12-29/vllm-relocache.git`.
 
-The fork owns execution integration: native cache identity and placement, request metadata, scheduler compilation coordination, offloading, pre-RoPE KV, and fused-RoPE attention. ReLoCache owns the external content and serving interfaces and calls this repository directly.
+ReLoCache is a semantic-layer library for position-independent caching, with future support for multiple backends. This fork may depend on and call ReLoCache through plugins and extension interfaces; upstream vLLM need not require ReLoCache as an installed dependency.
+
+Keep reuse semantics in ReLoCache and vLLM-specific details in its backend integration. Preserve native KV management, scheduling, cache lookup, offload, and performance. Minimize core changes to narrow interfaces or execution capabilities suitable for upstream contribution; avoid private implementation coupling and copies of native logic.
+
+This is the target boundary. The fork currently still contains PIC cache identity and placement, request metadata, compilation coordination, pre-RoPE KV, and fused-RoPE attention. Moving these implementations behind extension interfaces remains future work.
 
 Keep source, environment, cache, and experiment directories in the original `sempic_iclr` project read-only. Commit fork changes here before updating the parent repository's submodule reference.
