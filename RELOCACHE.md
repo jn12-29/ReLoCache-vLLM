@@ -6,7 +6,7 @@ The initial Native PIC source was extracted from `sempic_iclr` commit `642fb31bf
 
 The `upstream` remote points to `https://github.com/vllm-project/vllm.git`; `origin` points to the private fork at `git@github.com:jn12-29/vllm-relocache.git`.
 
-ReLoCache is a position-independent caching library for efficient inference serving. It owns PIC semantics and core implementations, including PIC-specific inference components, with future support for multiple backends. SemPIC primarily owns training and evaluation semantics. This fork may depend on and call ReLoCache through plugins and extension interfaces; upstream vLLM need not require ReLoCache as an installed dependency.
+ReLoCache targets efficient PIC-based inference serving and implements PIC semantics and core components, including PIC-specific inference components, with future support for multiple backends. SemPIC primarily owns training and evaluation semantics. This fork may depend on and call ReLoCache through plugins and extension interfaces; upstream vLLM need not require ReLoCache as an installed dependency.
 
 Integrate ReLoCache's PIC components with the minimum necessary vLLM changes, keeping vLLM-specific details in backend integration. Reuse native KV management, scheduling, cache lookup, and offload mechanisms while preserving performance. Limit core changes to narrow interfaces or execution capabilities suitable for upstream contribution; avoid private implementation coupling and copies of native logic.
 
