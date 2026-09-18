@@ -352,17 +352,6 @@ class TieringOffloadingManager(OffloadingManager):
             for job in self._jobs.values()
         )
 
-    def finish_inspection(self, req_context: ReqContext) -> None:
-        for tier in self.secondary_tiers:
-            tier.finish_inspection(req_context)
-
-    def inspect_keys(self, keys, req_context: ReqContext):
-        self._maybe_process_finished_jobs()
-        result = {"cpu": [self.primary_tier.lookup(k, req_context).name for k in keys]}
-        for index, tier in enumerate(self.secondary_tiers):
-            result[f"{tier.tier_type}:{index}"] = tier.inspect_keys(keys, req_context)
-        return result
-
     @override
     def lookup(
         self,

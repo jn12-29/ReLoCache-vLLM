@@ -105,11 +105,8 @@ _R = TypeVar("_R")  # Return type for collective_rpc
 class EngineCore:
     """Inner loop of vLLM's Engine."""
 
-    def extension_call(self, method: str, args: list[Any]):
-        return self.scheduler.extension_call(method, *args)
-
-    def storage_pending(self) -> bool:
-        return self.scheduler.has_requests()
+    def scheduler_call(self, method: str, args: list[Any]):
+        return getattr(self.scheduler, method)(*args)
 
     def __init__(
         self,

@@ -227,13 +227,6 @@ class OffloadingManager(ABC):
     def has_pending_request(self, request_id: str) -> bool:
         return False
 
-    def finish_inspection(self, req_context: ReqContext) -> None:
-        return None
-
-    def inspect_keys(self, keys, req_context: ReqContext):
-        """Inspect residency without triggering promotion to another tier."""
-        return {"cpu": [self.lookup(key, req_context).name for key in keys]}
-
     @abstractmethod
     def lookup(self, key: OffloadKey, req_context: ReqContext) -> LookupResult:
         """

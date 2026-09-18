@@ -164,6 +164,7 @@ class OnlineRenderer:
         self.completion_input_renderer: (
             Callable[..., Awaitable[list[EngineInput] | None]] | None
         ) = None
+        self.response_input_converter: Callable[..., Any] | None = None
         self.supports_browsing = False
         self.supports_code_interpreter = False
 
@@ -324,6 +325,7 @@ class OnlineRenderer:
         messages = construct_input_messages(
             request_instructions=request.instructions,
             request_input=request.input,
+            item_converter=self.response_input_converter,
             prev_msg=list(previous_messages) if previous_messages is not None else None,
             prev_response_output=(
                 list(previous_response_outputs)

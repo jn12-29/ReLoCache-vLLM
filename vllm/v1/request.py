@@ -85,7 +85,6 @@ class Request:
         self.internal = False
         self.cache_transfer_stats: dict[str, Any] = {}
         self.required_cached_tokens = 0
-        self.worker_metadata: dict[str, Any] | None = None
         self.request_id = request_id
         self.client_index = client_index
         self.priority = priority
@@ -240,10 +239,6 @@ class Request:
         # If True, request should be aborted immediately after being added to
         # the scheduler so the connector's request_finished hook runs.
         self.abort_immediately = abort_immediately
-
-    def get_prompt_embeds(self):
-        """Return embeddings and mask in the worker's execution order."""
-        return self.prompt_embeds, self.prompt_is_token_ids
 
     @classmethod
     def from_engine_core_request(

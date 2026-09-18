@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from openai.types.chat import (
@@ -165,6 +165,7 @@ def construct_input_messages(
     request_input: str | list[ResponseInputOutputItem],
     prev_msg: list[ChatCompletionMessageParam] | None = None,
     prev_response_output: list[ResponseOutputItem] | None = None,
+    item_converter: Callable[..., ChatCompletionMessageParam | None] | None = None,
 ):
     messages: list[ChatCompletionMessageParam] = []
     if request_instructions:
@@ -199,13 +200,17 @@ def construct_input_messages(
     if isinstance(request_input, str):
         messages.append({"role": "user", "content": request_input})
     else:
-        input_messages = construct_chat_messages_with_tool_call(request_input)
+        input_messages = construct_chat_messages_with_tool_call(
+            request_input, item_converter=item_converter
+        )
         messages.extend(input_messages)
     return messages
 
 
 def construct_chat_messages_with_tool_call(
     input_messages: list[ResponseInputOutputItem],
+    *,
+    item_converter: Callable[..., ChatCompletionMessageParam | None] | None = None,
 ) -> list[ChatCompletionMessageParam]:
     """Build chat messages from response items.
 
@@ -213,6 +218,9 @@ def construct_chat_messages_with_tool_call(
     """
     messages: list[ChatCompletionMessageParam] = []
     for item in input_messages:
+        if item_converter is not None and (message := item_converter(item)) is not None:
+            messages.append(message)
+            continue
         message = _construct_message_from_response_item(
             item, prev_msg=messages[-1] if messages else None
         )
@@ -324,11 +332,6 @@ def _construct_message_from_response_item(
         )
     elif isinstance(item, dict) and item.get("role") == "assistant":
         content = item.get("content")
-        if isinstance(content, list) and any(
-            part.get("type") in ("reusable_content", "prompt_embeds")
-            for part in content
-        ):
-            return item
         text: str | None = None
         if isinstance(content, str):
             text = content

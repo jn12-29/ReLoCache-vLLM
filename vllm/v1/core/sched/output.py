@@ -59,7 +59,6 @@ class NewRequestData:
         uses_mrope: bool = False,
         uses_xdrope: bool = False,
     ) -> "NewRequestData":
-        prompt_embeds, prompt_is_token_ids = request.get_prompt_embeds()
         return cls(
             req_id=request.request_id,
             prompt_token_ids=request.prompt_token_ids,
@@ -74,9 +73,8 @@ class NewRequestData:
             block_ids=block_ids,
             num_computed_tokens=request.num_computed_tokens,
             lora_request=request.lora_request,
-            prompt_embeds=prompt_embeds,
-            prompt_is_token_ids=prompt_is_token_ids,
-            worker_metadata=request.worker_metadata,
+            prompt_embeds=request.prompt_embeds,
+            prompt_is_token_ids=request.prompt_is_token_ids,
             prefill_token_ids=prefill_token_ids,
         )
 

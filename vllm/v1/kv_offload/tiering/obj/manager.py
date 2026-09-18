@@ -297,11 +297,6 @@ class ObjectStoreSecondaryTierManager(SecondaryTierManager):
             job_metadata.job_id, job_metadata.block_ids, obj_keys, NIXL_READ
         )
 
-    def inspect_keys(self, keys, req_context: ReqContext):
-        results = [self.lookup(key, req_context).name for key in keys]
-        self._lookup_manager.flush()
-        return results
-
     def on_request_finished(self, req_context: ReqContext) -> None:
         self._lookup_manager.cleanup(req_context.req_id)
 

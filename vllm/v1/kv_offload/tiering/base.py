@@ -247,12 +247,6 @@ class SecondaryTierManager(ABC):
         """Take KV events for storage state owned by this tier."""
         return ()
 
-    def inspect_keys(self, keys, req_context: ReqContext):
-        return [self.lookup(key, req_context).name for key in keys]
-
-    def finish_inspection(self, req_context: ReqContext) -> None:
-        self.on_request_finished(req_context)
-
     def touch(self, keys: Collection[OffloadKey], req_context: ReqContext):
         """
         Mark blocks as recently used for eviction policy.

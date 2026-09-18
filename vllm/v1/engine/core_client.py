@@ -1196,8 +1196,11 @@ class AsyncMPClient(MPClient):
         # memoryview back to the original owning tensor/ndarray).
         return self.input_socket.send_multipart((engine,) + message, copy=False)
 
-    async def call_utility_async(self, method: str, *args) -> Any:
-        return await self._call_utility_async(method, *args, engine=self.core_engine)
+    async def call_utility_async(
+        self, method: str, *args, all_results: bool = False
+    ) -> Any:
+        result = await self._call_utility_async(method, *args, engine=self.core_engine)
+        return [result] if all_results else result
 
     async def _call_utility_async(
         self, method: str, *args, engine: EngineIdentity
@@ -1596,17 +1599,16 @@ class DPLBAsyncMPClient(DPAsyncMPClient):
         self.engine_inflight[chosen_engine] += 1
         return chosen_engine
 
-    async def call_utility_async(self, method: str, *args) -> Any:
-        # Storage draining must account for every replica.
+    async def call_utility_async(
+        self, method: str, *args, all_results: bool = False
+    ) -> Any:
         results = await asyncio.gather(
             *[
                 self._call_utility_async(method, *args, engine=engine)
                 for engine in self.core_engines
             ]
         )
-        if method == "storage_pending":
-            return any(results)
-        return results if method == "extension_call" else results[0]
+        return results if all_results else results[0]
 
     @staticmethod
     async def process_engine_outputs(

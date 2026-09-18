@@ -41,9 +41,6 @@ class SchedulerInterface(ABC):
 
         return Request.from_engine_core_request(request, block_hasher)
 
-    def extension_call(self, method: str, *args):
-        raise NotImplementedError(method)
-
     @abstractmethod
     def __init__(
         self,

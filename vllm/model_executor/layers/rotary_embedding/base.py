@@ -2,12 +2,9 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """Rotary Positional Embeddings Base Class."""
 
-from typing import Any, cast
-
 import torch
 
 from vllm._aiter_ops import rocm_aiter_ops
-from vllm.config import get_current_vllm_config_or_none
 from vllm.model_executor.custom_op import CustomOp
 
 from .common import ApplyRotaryEmb
@@ -31,13 +28,6 @@ class RotaryEmbeddingBase(CustomOp):
         init_cache: bool = True,
     ) -> None:
         super().__init__()
-        config = get_current_vllm_config_or_none()
-        self.position_free_kv = bool(
-            config
-            and cast(dict[str, Any], config.additional_config).get(
-                "position_free_kv", False
-            )
-        )
         self.head_size = head_size
         self.rotary_dim = rotary_dim
         self.max_position_embeddings = max_position_embeddings
@@ -104,8 +94,6 @@ class RotaryEmbeddingBase(CustomOp):
     def _compute_cos_sin_cache(self) -> torch.Tensor:
         """Compute the cos and sin cache."""
         inv_freq = self._compute_inv_freq(self.base)
-        self.register_buffer("inv_freq", inv_freq, persistent=False)
-        self.attention_scaling = 1.0
         t = torch.arange(self.max_position_embeddings, dtype=torch.float)
 
         freqs = torch.einsum("i,j -> ij", t, inv_freq)
@@ -220,16 +208,15 @@ class RotaryEmbedding(RotaryEmbeddingBase):
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """A PyTorch-native implementation of forward()."""
         cos_sin_cache = self._match_cos_sin_cache_dtype(query)
-        query, rotated_key = self.forward_static(
+        return self.forward_static(
             positions,
             query,
-            None if self.position_free_kv else key,
+            key,
             self.head_size,
             self.rotary_dim,
             cos_sin_cache,
             self.is_neox_style,
         )
-        return query, key if self.position_free_kv else rotated_key
 
     def forward_cuda(
         self,
@@ -241,7 +228,7 @@ class RotaryEmbedding(RotaryEmbeddingBase):
             torch.ops.vllm.flashinfer_rotary_embedding(
                 positions,
                 query,
-                None if self.position_free_kv else key,
+                key,
                 self.head_size,
                 self.cos_sin_cache,
                 self.is_neox_style,
@@ -257,7 +244,7 @@ class RotaryEmbedding(RotaryEmbeddingBase):
         ops.rotary_embedding(
             positions,
             query,
-            None if self.position_free_kv else key,
+            key,
             self.head_size,
             cos_sin_cache,
             self.is_neox_style,
