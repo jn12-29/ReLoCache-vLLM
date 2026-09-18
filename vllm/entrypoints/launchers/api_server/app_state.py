@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import warnings
 from argparse import Namespace
-from typing import cast
+from typing import Any, cast
 
 from starlette.datastructures import State
 
@@ -85,7 +85,14 @@ async def init_app_state(
     )
     await state.openai_serving_models.init_static_loras()
 
-    state.online_renderer = OnlineRenderer(
+    online_renderer_cls = OnlineRenderer
+    if renderer_path := cast(dict[str, Any], vllm_config.additional_config).get(
+        "online_renderer_cls"
+    ):
+        from vllm.utils.import_utils import resolve_obj_by_qualname
+
+        online_renderer_cls = resolve_obj_by_qualname(renderer_path)
+    state.online_renderer = online_renderer_cls(
         model_config=engine_client.model_config,
         renderer=engine_client.renderer,
         request_logger=request_logger,

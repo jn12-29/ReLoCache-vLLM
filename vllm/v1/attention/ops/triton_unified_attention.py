@@ -292,15 +292,12 @@ def kernel_unified_attention(
     logical_ranges_ptr=None,
     logical_range_counts_ptr=None,
     query_positions_ptr=None,
-    rope_inv_freq_ptr=None,
-    cos_sin_cache_ptr=None,
+    key_transform_tensors=(),
     USE_LOGICAL_RANGES: tl.constexpr = False,
     RANGE_END: tl.constexpr = None,
     RANGE_MAP: tl.constexpr = None,
     KEY_TRANSFORM: tl.constexpr = None,
-    ROTARY_DIM: tl.constexpr = 0,
-    ROPE_IS_NEOX_STYLE: tl.constexpr = True,
-    ROPE_ATTENTION_SCALING: tl.constexpr = 1.0,
+    KEY_TRANSFORM_CONFIG: tl.constexpr = (),
 ):
     # Per-(token, head) scale caches: used iff KV_QUANT_MODE in {2, 3}.
     USE_PER_TOKEN_HEAD_SCALES: tl.constexpr = (KV_QUANT_MODE >= 2) and (
@@ -557,14 +554,11 @@ def kernel_unified_attention(
                 logical_k,
                 offs_d,
                 tile_mask,
-                rope_inv_freq_ptr,
-                cos_sin_cache_ptr,
                 Q.dtype,
-                ROTARY_DIM,
-                ROPE_IS_NEOX_STYLE,
-                ROPE_ATTENTION_SCALING,
                 HEAD_SIZE_PADDED,
                 TILE_SIZE,
+                key_transform_tensors,
+                KEY_TRANSFORM_CONFIG,
             )
 
         # Per-(token, head) scales for INT8 / FP8 per-token-head modes.
@@ -946,10 +940,8 @@ def unified_attention(
     logical_ranges=None,
     logical_range_counts=None,
     query_positions=None,
-    rope_inv_freq=None,
-    cos_sin_cache=None,
-    rope_is_neox_style=True,
-    rope_attention_scaling=1.0,
+    key_transform_tensors=(),
+    key_transform_config=(),
 ):
     # Resolve causal: bool or per-seq tensor.
     use_per_seq_causal = isinstance(causal, torch.Tensor)
@@ -1272,12 +1264,9 @@ def unified_attention(
         logical_ranges_ptr=logical_ranges,
         logical_range_counts_ptr=logical_range_counts,
         query_positions_ptr=query_positions,
-        rope_inv_freq_ptr=rope_inv_freq,
-        cos_sin_cache_ptr=cos_sin_cache,
+        key_transform_tensors=key_transform_tensors,
         USE_LOGICAL_RANGES=logical_ranges is not None,
-        ROTARY_DIM=2 * rope_inv_freq.numel() if rope_inv_freq is not None else 0,
-        ROPE_IS_NEOX_STYLE=rope_is_neox_style,
-        ROPE_ATTENTION_SCALING=rope_attention_scaling,
+        KEY_TRANSFORM_CONFIG=key_transform_config,
         **launch_kwargs,
     )
 

@@ -419,7 +419,6 @@ class InputProcessor:
             request_id=request_id,
             prompt_token_ids=prompt_token_ids,
             prompt_embeds=prompt_embeds,
-            extension=decoder_input.get("extension"),
             prompt_is_token_ids=prompt_is_token_ids,
             mm_features=mm_features,
             sampling_params=sampling_params,

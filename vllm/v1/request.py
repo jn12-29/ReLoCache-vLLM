@@ -19,7 +19,6 @@ from vllm.v1.engine import (
     EngineCoreEventType,
     EngineCoreRequest,
     FinishReason,
-    RequestExtension,
 )
 from vllm.v1.metrics.stats import PrefillStats, RequestSpecDecodeMetrics
 from vllm.v1.structured_output.request import StructuredOutputRequest
@@ -79,9 +78,7 @@ class Request:
         reasoning_ended: bool | None = None,
         reasoning_parser_kwargs: dict[str, Any] | None = None,
         abort_immediately: bool = False,
-        extension: RequestExtension | None = None,
     ) -> None:
-        self.extension = extension
         self.internal = False
         self.cache_transfer_stats: dict[str, Any] = {}
         self.required_cached_tokens = 0
@@ -266,7 +263,6 @@ class Request:
             reasoning_ended=request.reasoning_ended,
             reasoning_parser_kwargs=request.reasoning_parser_kwargs,
             abort_immediately=request.abort_immediately,
-            extension=request.extension,
         )
 
     def append_output_token_ids(
