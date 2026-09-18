@@ -12,6 +12,6 @@ Integrate ReLoCache's PIC components with the minimum necessary vLLM changes, ke
 
 Content categories are **Reusable Content** and **Dynamic Content**. Reusable Content is independently compiled into PIC KV for reuse at different logical positions. Dynamic Content executes in the current Reader context and retains native prefix-cache reuse; its code identifiers use `dynamic_content`.
 
-This is the target boundary. The fork currently still contains PIC cache identity and placement, request metadata, compilation coordination, pre-RoPE KV, and fused-RoPE attention. Moving these implementations behind extension interfaces remains future work.
+This is the target boundary. The fork currently still contains PIC cache identity and placement, request metadata, compilation coordination, pre-RoPE KV, and fused-RoPE attention. The current priority is to decouple PIC core components from vLLM through extension interfaces, completing required functionality along the same paths. Recompute methods such as EPIC and CacheBlend, and compression methods, are deferred. The parent repository's `docs/roadmap.md` tracks the work.
 
 Keep source, environment, cache, and experiment directories in the original `sempic_iclr` project read-only. Commit fork changes here before updating the parent repository's submodule reference.
