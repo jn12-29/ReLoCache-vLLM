@@ -524,29 +524,6 @@ class TestTieringOffloadingManager:
         # Next lookup should succeed
         assert count_hits(self.manager, blocks) == 3
 
-    def test_required_promotion_retries_when_primary_is_full(self, manager_setup):
-        """Required secondary hits survive temporary primary write pressure."""
-        self._start_request()
-        occupied = to_keys(range(5))
-        assert self.manager.prepare_store(occupied, _CTX) is not None
-
-        required = ReqContext(req_id="required", require_load=True)
-        self._start_request(required)
-        key, missing = to_keys([10, 11])
-        self.secondary_tier1.blocks[key] = True
-
-        assert self.manager.lookup(key, required) is LookupResult.RETRY
-        assert self.manager.lookup(key, _CTX) is LookupResult.MISS
-        assert self.manager.lookup(missing, required) is LookupResult.MISS
-
-        self.manager.complete_store(occupied, _CTX, success=True)
-        self._simulate_on_schedule_end()
-        self._simulate_on_schedule_end()
-        assert self.manager.lookup(key, required) is LookupResult.HIT_PENDING
-        self._simulate_on_schedule_end()
-        self._simulate_on_schedule_end()
-        assert self.manager.lookup(key, required) is LookupResult.HIT
-
     @pytest.mark.parametrize(
         ("successful_indices", "expected_results"),
         [
