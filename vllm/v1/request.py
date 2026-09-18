@@ -15,7 +15,7 @@ from vllm.multimodal.inputs import MultiModalFeatureSpec
 from vllm.pooling_params import PoolingParams
 from vllm.sampling_params import SamplingParams
 from vllm.utils import length_from_prompt_token_ids_or_embeds
-from vllm.v1.core.pic import PICLayout, ReusableSpan, inline_ranges
+from vllm.v1.core.pic import PICLayout, ReusableSpan, dynamic_content_ranges
 from vllm.v1.engine import (
     EngineCoreEvent,
     EngineCoreEventType,
@@ -148,16 +148,16 @@ class Request:
         self.reusable_spans = reusable_spans or []
         self.canonical_prompt_token_ids = prompt_token_ids
         self.pic_layout: PICLayout | None = None
-        self._pic_inline_hashes: list[BlockHash] = []
+        self._pic_dynamic_content_hashes: list[BlockHash] = []
         self._pic_hash_block_size = 0
-        self._pic_inline_prompt_token_ids = (
+        self._pic_dynamic_content_prompt_token_ids = (
             [
                 (
                     token
                     if prompt_is_token_ids is None or prompt_is_token_ids[index]
                     else 0
                 )
-                for start, end in inline_ranges(self)
+                for start, end in dynamic_content_ranges(self)
                 for index, token in enumerate(
                     cast("list[int]", prompt_token_ids)[start:end], start
                 )

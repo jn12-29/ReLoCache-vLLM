@@ -23,12 +23,12 @@ def test_ordered_ranges_skip_pad_and_future_pic_in_captured_attention(
     torch.manual_seed(18)
     device, dtype = "cuda", torch.bfloat16
     heads, kv_heads, head_size = 4, 2, 64
-    # Canonical A5 B3 C2 D2 E4; storage puts compressed B/D before Inline.
+    # Canonical A5 B3 C2 D2 E4; storage puts compressed B/D before Dynamic Content.
     # Both PICs are already resident when the first Q tile uses only A.
     q_positions = torch.tensor([0, 1, 2, 3, 4, 8, 9, 12, 13, 14, 15], device=device)
-    inline_slots = torch.arange(32, 43, device=device)
+    dynamic_content_slots = torch.arange(32, 43, device=device)
     positions = torch.full((48,), -1.0, device=device)
-    positions[inline_slots] = q_positions.float()
+    positions[dynamic_content_slots] = q_positions.float()
     local_b = torch.tensor(
         [0.0, 1.0] if contiguous else [0.0 if use_table else 0.5, 2.0], device=device
     )
@@ -45,7 +45,7 @@ def test_ordered_ranges_skip_pad_and_future_pic_in_captured_attention(
         PICLayout(
             canonical_length=16,
             storage_length=43,
-            inline_ranges=[(32, 0, 5), (37, 8, 2), (39, 12, 4)],
+            dynamic_content_ranges=[(32, 0, 5), (37, 8, 2), (39, 12, 4)],
             occurrences=[
                 PICOccurrence(5, 0, [(0, 0, 16)]),
                 PICOccurrence(10, 1, [(16, 0, 16)]),
@@ -169,7 +169,7 @@ def test_ordered_ranges_skip_pad_and_future_pic_in_captured_attention(
         PICLayout(
             canonical_length=107,
             storage_length=43,
-            inline_ranges=[(32, 96, 11)],
+            dynamic_content_ranges=[(32, 96, 11)],
             occurrences=[PICOccurrence(3 * i, 0, [(0, 0, 16)]) for i in range(32)],
             contents=contents[:1],
             layer_names=["layer.0"],
@@ -179,11 +179,11 @@ def test_ordered_ranges_skip_pad_and_future_pic_in_captured_attention(
     )
     repeated_ranges = repeated_buffers.ranges["layer.0"]
     q_positions.copy_(torch.arange(96, 107, device=device))
-    new_inline = rotate(key[inline_slots], q_positions)
+    new_dynamic_content = rotate(key[dynamic_content_slots], q_positions)
     keys = torch.cat(
-        [rotate(key[:2], local_b + 3 * i) for i in range(32)] + [new_inline]
+        [rotate(key[:2], local_b + 3 * i) for i in range(32)] + [new_dynamic_content]
     )
-    expanded_values = torch.cat([value[:2]] * 32 + [value[inline_slots]])
+    expanded_values = torch.cat([value[:2]] * 32 + [value[dynamic_content_slots]])
     expanded_positions = torch.cat([local_b + 3 * i for i in range(32)] + [q_positions])
     pointers.fill_(repeated_ranges.data_ptr())
     counts.fill_(33)

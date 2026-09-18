@@ -13,7 +13,7 @@ def test_contiguous_mapping_shares_layers_and_trims_reordered_tail_pages():
     layout = PICLayout(
         canonical_length=13,
         storage_length=11,
-        inline_ranges=[(8, 0, 1), (9, 6, 1), (10, 12, 1)],
+        dynamic_content_ranges=[(8, 0, 1), (9, 6, 1), (10, 12, 1)],
         occurrences=[
             PICOccurrence(start, 0, [(4, 0, 4), (0, 4, 4)]) for start in (1, 7)
         ],
@@ -48,7 +48,7 @@ def test_reordered_storage_reuses_pages_with_distinct_logical_placements():
         layer_names=["layer.0", "layer.1"],
         canonical_length=9,
         storage_length=9,
-        inline_ranges=[(0, 0, 1), (1, 3, 2), (3, 7, 1), (8, 8, 1)],
+        dynamic_content_ranges=[(0, 0, 1), (1, 3, 2), (3, 7, 1), (8, 8, 1)],
         occurrences=[PICOccurrence(start, 0, [(4, 0, 4)]) for start in (1, 5)],
     )
     buffers = PICInputBuffers.from_layout(layout, 3, torch.device("cpu"))
@@ -79,7 +79,7 @@ def test_pic_segments_trim_layer_padding_and_offset_fractional_entries():
         layer_names=["layer.0"],
         canonical_length=4,
         storage_length=10,
-        inline_ranges=[(8, 0, 1), (9, 3, 1)],
+        dynamic_content_ranges=[(8, 0, 1), (9, 3, 1)],
         occurrences=[PICOccurrence(1, 0, [(4, 0, 4), (0, 4, 4)])],
     )
     buffers = PICInputBuffers.from_layout(layout, 2, torch.device("cpu"))

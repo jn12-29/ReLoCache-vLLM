@@ -54,8 +54,8 @@ class PICOccurrence(msgspec.Struct):
 class PICLayout(msgspec.Struct):
     canonical_length: int
     storage_length: int
-    # (storage slot, canonical position, length), for cached and live Inline.
-    inline_ranges: list[tuple[int, int, int]]
+    # (storage slot, canonical position, length), for cached and live Dynamic Content.
+    dynamic_content_ranges: list[tuple[int, int, int]]
     occurrences: list[PICOccurrence]
     contents: list[PICContentLayout]
     layer_names: list[str]
@@ -149,7 +149,7 @@ def defer_missing_content(
     return pending
 
 
-def inline_ranges(request: "Request") -> list[tuple[int, int]]:
+def dynamic_content_ranges(request: "Request") -> list[tuple[int, int]]:
     """Canonical intervals remaining after reusable occurrences are removed."""
     ranges = []
     start = 0
@@ -173,7 +173,7 @@ def pack_prompt_embeds(request: "Request"):
     mask = cast("list[bool]", mask)
     packed = embeds.new_zeros((layout.storage_length, embeds.shape[1]))
     packed_mask = [True] * layout.storage_length
-    for storage, logical, length in layout.inline_ranges:
+    for storage, logical, length in layout.dynamic_content_ranges:
         packed[storage : storage + length] = embeds[logical : logical + length]
         packed_mask[storage : storage + length] = mask[logical : logical + length]
     return packed, packed_mask
@@ -182,21 +182,21 @@ def pack_prompt_embeds(request: "Request"):
 def hash_reusable_request(
     request: "Request", block_size: int, hash_function: "Callable[[Any], bytes]"
 ) -> list["BlockHash"]:
-    """Hash packed Inline by canonical dependencies, independent of storage order."""
+    """Hash packed Dynamic Content by canonical dependencies, not storage order."""
     from vllm.v1.core.kv_cache_utils import (
         generate_block_hash_extra_keys,
         hash_block_tokens,
     )
 
     request._pic_hash_block_size = block_size
-    prompt = request._pic_inline_prompt_token_ids
-    hashes = request._pic_inline_hashes
+    prompt = request._pic_dynamic_content_prompt_token_ids
+    hashes = request._pic_dynamic_content_hashes
     old_count = len(hashes)
     num_tokens = len(prompt) + request.num_output_tokens
     if num_tokens < (old_count + 1) * block_size:
         return []
     canonical_length = len(cast("list[int]", request.canonical_prompt_token_ids))
-    ranges = inline_ranges(request)
+    ranges = dynamic_content_ranges(request)
     ranges.append((canonical_length, canonical_length + request.num_output_tokens))
 
     range_ends = list(accumulate(end - start for start, end in ranges))
@@ -254,14 +254,20 @@ def prepare_reusable_request(request: "Request", manager: "KVCacheManager") -> N
             "Terminal reusable content requires the Writer's final observation"
         )
     group_ids = list(range(len(manager.kv_cache_config.kv_cache_groups)))
-    inline_hashes = request._pic_inline_hashes
-    inline_ids = request._pic_inline_prompt_token_ids
+    dynamic_content_hashes = request._pic_dynamic_content_hashes
+    dynamic_content_ids = request._pic_dynamic_content_prompt_token_ids
     # Ordinary prefix lookup runs before the independent reusable lookups.
-    _, cached_inline_tokens, _ = manager.coordinator.find_longest_cache_hit(
-        inline_hashes,
-        max(0, min(len(inline_ids), len(inline_ids) + request.num_output_tokens - 1)),
+    _, cached_dynamic_content_tokens, _ = manager.coordinator.find_longest_cache_hit(
+        dynamic_content_hashes,
+        max(
+            0,
+            min(
+                len(dynamic_content_ids),
+                len(dynamic_content_ids) + request.num_output_tokens - 1,
+            ),
+        ),
     )
-    cached_inline_blocks = cached_inline_tokens // block_size
+    cached_dynamic_content_blocks = cached_dynamic_content_tokens // block_size
     gpu_pages = []
     remote_pages = []
     page_occurrences: dict[BlockHash, list[tuple[int, int]]] = {}
@@ -300,9 +306,9 @@ def prepare_reusable_request(request: "Request", manager: "KVCacheManager") -> N
                 )
             )
         occurrences.append(PICOccurrence(span.start, content_indices[compiled_id], []))
-    storage_hashes = inline_hashes[:cached_inline_blocks]
+    storage_hashes = dynamic_content_hashes[:cached_dynamic_content_blocks]
     for page_index, block_hash in enumerate(pages):
-        storage_start = (cached_inline_blocks + page_index) * block_size
+        storage_start = (cached_dynamic_content_blocks + page_index) * block_size
         for occurrence_index, entry_page in page_occurrences[block_hash]:
             occurrences[occurrence_index].segments.append(
                 (storage_start, entry_page * block_size, block_size)
@@ -322,32 +328,34 @@ def prepare_reusable_request(request: "Request", manager: "KVCacheManager") -> N
             else:
                 merged.append((start, offset, length))
         occurrence.segments = merged
-    storage_hashes.extend(inline_hashes[cached_inline_blocks:])
+    storage_hashes.extend(dynamic_content_hashes[cached_dynamic_content_blocks:])
 
     prefix_slots = len(pages) * block_size
-    mapped_inline = []
-    inline_offset = 0
-    for start, end in inline_ranges(request):
+    mapped_dynamic_content = []
+    dynamic_content_offset = 0
+    for start, end in dynamic_content_ranges(request):
         while start < end:
             length = end - start
-            if inline_offset < cached_inline_tokens:
-                length = min(length, cached_inline_tokens - inline_offset)
-                storage_start = inline_offset
+            if dynamic_content_offset < cached_dynamic_content_tokens:
+                length = min(
+                    length, cached_dynamic_content_tokens - dynamic_content_offset
+                )
+                storage_start = dynamic_content_offset
             else:
-                storage_start = inline_offset + prefix_slots
-            mapped_inline.append((storage_start, start, length))
-            inline_offset += length
+                storage_start = dynamic_content_offset + prefix_slots
+            mapped_dynamic_content.append((storage_start, start, length))
+            dynamic_content_offset += length
             start += length
 
     storage_ids = (
-        inline_ids[:cached_inline_tokens]
+        dynamic_content_ids[:cached_dynamic_content_tokens]
         + [0] * prefix_slots
-        + inline_ids[cached_inline_tokens:]
+        + dynamic_content_ids[cached_dynamic_content_tokens:]
     )
     request.pic_layout = PICLayout(
         len(cast("list[int]", request.canonical_prompt_token_ids)),
         len(storage_ids),
-        mapped_inline,
+        mapped_dynamic_content,
         occurrences,
         contents,
         [

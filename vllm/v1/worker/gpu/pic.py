@@ -23,9 +23,11 @@ class PICInputBuffers:
     @classmethod
     def from_layout(cls, layout: PICLayout, max_tokens: int, device: torch.device):
         positions = np.zeros(layout.storage_length + max_tokens, dtype=np.int64)
-        inline = list(layout.inline_ranges)
-        inline.append((layout.storage_length, layout.canonical_length, max_tokens))
-        for storage_start, logical_start, length in inline:
+        dynamic_content = list(layout.dynamic_content_ranges)
+        dynamic_content.append(
+            (layout.storage_length, layout.canonical_length, max_tokens)
+        )
+        for storage_start, logical_start, length in dynamic_content:
             positions[storage_start : storage_start + length] = np.arange(
                 logical_start, logical_start + length, dtype=np.int64
             )
@@ -46,7 +48,7 @@ class PICInputBuffers:
                 continue
             descriptors = [
                 (logical, storage, length, 0)
-                for storage, logical, length in inline
+                for storage, logical, length in dynamic_content
                 if length
             ]
             for occurrence in layout.occurrences:

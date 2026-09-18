@@ -349,7 +349,7 @@ def test_native_prefix_and_repeated_pic_share_storage(manager):
         "reader", tokens, [ReusableSpan(5, 3, metadata), ReusableSpan(10, 3, metadata)]
     )
     assert not req.block_hashes
-    assert req._pic_inline_hashes[0] == ordinary.block_hashes[0]
+    assert req._pic_dynamic_content_hashes[0] == ordinary.block_hashes[0]
     prepare_reusable_request(req, manager)
     blocks, computed, _ = manager.get_computed_blocks(req)
     require_reusable_prefix(req, computed)
@@ -475,7 +475,7 @@ def test_mixed_embeddings_follow_storage_order_without_changing_prefix_identity(
     req = request(
         "reader", tokens, spans, prompt_embeds=embeds, prompt_is_token_ids=mask
     )
-    assert req._pic_inline_hashes[0] == ordinary.block_hashes[0]
+    assert req._pic_dynamic_content_hashes[0] == ordinary.block_hashes[0]
     prepare_reusable_request(req, manager)
     data = NewRequestData.from_request(req, ([],))
     order = [0, 1, 2, 3, None, None, None, None, 4, 8, 9, 12, 13, 14, 15]
@@ -492,11 +492,11 @@ def test_mixed_embeddings_follow_storage_order_without_changing_prefix_identity(
         "fresh", tokens, spans, prompt_embeds=embeds, prompt_is_token_ids=mask
     )
     fresh.append_output_token_ids([20, 21, 22, 23])
-    assert req._pic_inline_hashes == fresh._pic_inline_hashes
+    assert req._pic_dynamic_content_hashes == fresh._pic_dynamic_content_hashes
     torch.testing.assert_close(req.prompt_embeds, embeds)
 
 
-def test_inline_hashes_exclude_future_pic_identity(manager):
+def test_dynamic_content_hashes_exclude_future_pic_identity(manager):
     tokens = list(range(24))
     early = ReusableSpan(4, 4, content(b"early"))
     left = request(
@@ -505,11 +505,11 @@ def test_inline_hashes_exclude_future_pic_identity(manager):
     right = request(
         "right", tokens, [early, ReusableSpan(16, 4, content(b"b", "future-b"))]
     )
-    assert left._pic_inline_hashes[:3] == right._pic_inline_hashes[:3]
-    assert left._pic_inline_hashes[3] != right._pic_inline_hashes[3]
+    assert left._pic_dynamic_content_hashes[:3] == right._pic_dynamic_content_hashes[:3]
+    assert left._pic_dynamic_content_hashes[3] != right._pic_dynamic_content_hashes[3]
 
 
-def test_inline_hashes_depend_on_the_pic_writer_identity(manager):
+def test_dynamic_content_hashes_depend_on_the_pic_writer_identity(manager):
     tokens = list(range(12))
     original = native_content(manager, "original", tokens[4:8])
     alias = native_content(manager, "alias", tokens[4:8])
@@ -518,9 +518,9 @@ def test_inline_hashes_depend_on_the_pic_writer_identity(manager):
         request(name, tokens, [ReusableSpan(4, 4, metadata)])
         for name, metadata in (("left", original), ("same", alias), ("right", changed))
     ]
-    assert left._pic_inline_hashes == same._pic_inline_hashes
-    assert left._pic_inline_hashes[0] == right._pic_inline_hashes[0]
-    assert left._pic_inline_hashes[1] != right._pic_inline_hashes[1]
+    assert left._pic_dynamic_content_hashes == same._pic_dynamic_content_hashes
+    assert left._pic_dynamic_content_hashes[0] == right._pic_dynamic_content_hashes[0]
+    assert left._pic_dynamic_content_hashes[1] != right._pic_dynamic_content_hashes[1]
 
 
 def test_native_preemption_waits_for_store_before_replanning(manager):
