@@ -5,7 +5,7 @@ import time
 from collections import defaultdict, deque
 from collections.abc import Iterable
 from dataclasses import replace
-from typing import Any, cast
+from typing import Any
 
 from vllm.compilation.cuda_graph import CUDAGraphStat
 from vllm.config import KVEventsConfig, VllmConfig
@@ -192,7 +192,6 @@ class Scheduler(SchedulerInterface):
 
         # req_id -> Request
         self.requests: dict[str, Request] = {}
-        self.pic_compiles: dict[str, set[str]] = {}
         # Scheduling policy
         try:
             self.policy = SchedulingPolicy(self.scheduler_config.policy)
@@ -210,6 +209,7 @@ class Scheduler(SchedulerInterface):
         # current steps. This is used to notify the workers about the finished
         # requests so that they can free the cached states for those requests.
         # This is flushed at the end of each scheduling step.
+        self.admission_errors: dict[str, str] = {}
         self.finished_req_ids: set[str] = set()
 
         # IDs of requests preempted since the last call to schedule().
@@ -528,30 +528,14 @@ class Scheduler(SchedulerInterface):
         end = min((s for s in stops if start < s < end), default=end)
         return max(end - start, 0)
 
+    def defer_request(self, request: Request, num_cached_tokens: int) -> bool:
+        """Allow an extension to wait for work before native cache admission."""
+        return False
+
     def _get_local_prefix_cache_hit(
         self, request: Request
     ) -> tuple[KVCacheBlocks, int, int, bool]:
         connector = self.connector
-        if request.reusable_spans:
-            from vllm.distributed.kv_transfer.kv_connector.v1 import (
-                offloading_connector,
-            )
-            from vllm.distributed.kv_transfer.kv_connector.v1.offloading import (
-                scheduler as offloading_scheduler,
-            )
-            from vllm.v1.core.pic import prepare_reusable_request
-
-            pending = (
-                isinstance(connector, offloading_connector.OffloadingConnector)
-                and cast(
-                    offloading_scheduler.OffloadingConnectorScheduler,
-                    connector.connector_scheduler,
-                )
-                ._req_status[request.request_id]
-                .transfer_jobs
-            )
-            if not pending:
-                prepare_reusable_request(request, self.kv_cache_manager)
         if connector is not None and connector.supports_divergent_local_hybrid_hits:
             return self.kv_cache_manager.get_computed_blocks_for_connector(request)
 
@@ -938,15 +922,10 @@ class Scheduler(SchedulerInterface):
                         hit_diverged,
                     ) = self._get_local_prefix_cache_hit(request)
 
-                    if request.reusable_spans:
-                        from vllm.v1.core.pic import defer_missing_content
-
-                        if defer_missing_content(
-                            self, request, num_new_local_computed_tokens
-                        ):
-                            request_queue.pop_request()
-                            step_skipped_waiting.prepend_request(request)
-                            continue
+                    if self.defer_request(request, num_new_local_computed_tokens):
+                        request_queue.pop_request()
+                        step_skipped_waiting.prepend_request(request)
+                        continue
 
                     # Get externally-cached tokens if using a KVConnector.
                     if self.connector is not None:
@@ -1012,10 +991,13 @@ class Scheduler(SchedulerInterface):
                     num_computed_tokens = (
                         num_new_local_computed_tokens + num_external_computed_tokens
                     )
-                    if request.reusable_spans:
-                        from vllm.v1.core.pic import require_reusable_prefix
-
-                        require_reusable_prefix(request, num_computed_tokens)
+                    if num_computed_tokens < request.required_cached_tokens:
+                        self.admission_errors[request.request_id] = (
+                            "required_cache_missing"
+                        )
+                        request_queue.pop_request()
+                        step_skipped_waiting.prepend_request(request)
+                        continue
                     assert num_computed_tokens <= request.num_tokens
 
                     # Skip request with pending mm encoding prefetches
@@ -2145,7 +2127,7 @@ class Scheduler(SchedulerInterface):
 
             should_emit_output = (
                 bool(new_token_ids or pooler_output is not None or stopped)
-                and not request.pic_internal
+                and not request.internal
             )
             if should_emit_output:
                 prefill_stats = request.take_prefill_stats()
@@ -2226,7 +2208,9 @@ class Scheduler(SchedulerInterface):
             self.waiting.remove_requests(stopped_preempted_reqs)
             self.skipped_waiting.remove_requests(stopped_preempted_reqs)
 
-        error_req_ids = set(self.grammar_compile_error_reqs)
+        admission_errors, self.admission_errors = self.admission_errors, {}
+        error_req_ids = set(admission_errors)
+        error_req_ids.update(self.grammar_compile_error_reqs)
         self.grammar_compile_error_reqs.clear()
         if failed_kv_load_req_ids and not self.recompute_kv_load_failures:
             error_req_ids.update(failed_kv_load_req_ids)
@@ -2240,10 +2224,13 @@ class Scheduler(SchedulerInterface):
                 error_req_ids, RequestStatus.FINISHED_ERROR
             )
             for request in error_reqs:
+                if request.internal:
+                    continue
                 outputs[request.client_index].append(
                     EngineCoreOutput(
                         request_id=request.request_id,
                         new_token_ids=[],
+                        stop_reason=admission_errors.get(request.request_id),
                         finish_reason=request.get_finished_reason(),
                         events=request.take_events(),
                         trace_headers=request.trace_headers,
@@ -2527,9 +2514,6 @@ class Scheduler(SchedulerInterface):
                 request.streaming_queue = deque()
             self._enqueue_waiting_request(request)
             self.requests[request.request_id] = request
-            if request.pic_compile is not None:
-                key = request.pic_compile["compiled_id"]
-                self.pic_compiles.setdefault(key, set()).add(request.request_id)
             if self.spec_decode_metrics_level != "none":
                 request.spec_decode_metrics = RequestSpecDecodeMetrics.new(
                     self.num_spec_tokens
@@ -2607,12 +2591,6 @@ class Scheduler(SchedulerInterface):
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         assert request.is_finished()
 
-        if request.pic_compile is not None:
-            key = request.pic_compile["compiled_id"]
-            pending = self.pic_compiles[key]
-            pending.remove(request.request_id)
-            if not pending:
-                del self.pic_compiles[key]
         self._inflight_prefills.discard(request)
         connector_delay_free_blocks, kv_xfer_params = self._connector_finished(request)
 

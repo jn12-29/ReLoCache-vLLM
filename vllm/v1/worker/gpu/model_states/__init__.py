@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+from typing import Any, cast
+
 import torch
 import torch.nn as nn
 
@@ -28,6 +30,14 @@ def init_model_state(
 def resolve_model_state_cls(
     vllm_config: VllmConfig, model: nn.Module
 ) -> type[ModelState]:
+    state_cls = cast(dict[str, Any], vllm_config.additional_config).get(
+        "model_state_cls"
+    )
+    if state_cls is not None:
+        from vllm.utils.import_utils import resolve_obj_by_qualname
+
+        return resolve_obj_by_qualname(state_cls)
+
     # Let the model provide its own ModelState if it defines one.
     if hasattr(model, "get_model_state_cls"):
         return model.get_model_state_cls()

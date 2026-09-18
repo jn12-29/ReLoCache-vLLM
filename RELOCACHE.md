@@ -12,8 +12,10 @@ Integrate ReLoCache's PIC components with the minimum necessary vLLM changes, ke
 
 Content categories are **Reusable Content** and **Dynamic Content**. Reusable Content is independently compiled into PIC KV for reuse at different logical positions. Dynamic Content executes in the current Reader context and retains native prefix-cache reuse; its code identifiers use `dynamic_content`.
 
-Source snapshots and logical Reader input assembly now live in ReLoCache core modules. Compilation request construction and PIC page identity have moved to `relocache.backends.vllm.compiler`, called only on PIC execution paths. Native completion rendering exposes an optional input callback alongside the chat callback, preserving native generation and streaming handlers.
+PIC sources, identities, compilation coordination, logical placement, range traversal, key rotation and their tests now live in ReLoCache. Its vLLM adapter specializes the existing Scheduler, Request and ModelState paths; the fork has no imports of ReLoCache or embedded PIC implementation.
 
-The fork still contains request metadata, scheduling coordination, physical/logical storage placement, pre-RoPE KV, and fused-RoPE attention. The current priority is to decouple these PIC components through extension interfaces, completing required functionality along the same paths. Recompute methods such as EPIC and CacheBlend, and compression methods, are deferred. The parent repository's `docs/roadmap.md` tracks the work.
+The remaining fork changes expose narrow execution capabilities: opaque request metadata with typed tensors, custom request construction and cache admission, internal requests, worker metadata and ModelState selection, logical position mapping, query-only RoPE and fused attention transforms, scoped offload inspection/transfer statistics, and request error/stream metadata propagation. Native KV ownership, queues, cache lookup, tiered transfers and attention tiling/softmax remain native.
+
+Recompute methods such as EPIC and CacheBlend, and compression methods, are deferred rather than removed. Protocol and validation details are maintained in the parent repository's `docs/integration.md` and `docs/decoupling-validation.md`.
 
 Keep source, environment, cache, and experiment directories in the original `sempic_iclr` project read-only. Commit fork changes here before updating the parent repository's submodule reference.

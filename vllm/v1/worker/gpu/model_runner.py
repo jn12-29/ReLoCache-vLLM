@@ -1307,15 +1307,15 @@ class GPUModelRunner(LoRAModelRunnerMixin):
             )
 
         # Prepare positions and seq_lens.
-        pic_state = getattr(self.model_state, "pic_state", None)
+        position_map, mapped_positions = self.model_state.get_position_mapping()
         prepare_pos_seq_lens(
             idx_mapping,
             query_start_loc,
             self.req_states.num_computed_tokens.gpu,
             self.input_buffers.positions,
             self.input_buffers.seq_lens,
-            position_map_ptrs=pic_state.position_map_ptrs.gpu if pic_state else None,
-            canonical_positions=pic_state.positions if pic_state else None,
+            position_map_ptrs=position_map,
+            canonical_positions=mapped_positions,
         )
         seq_lens = self.input_buffers.seq_lens[:num_reqs_padded]
 

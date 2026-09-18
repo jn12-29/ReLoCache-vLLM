@@ -397,7 +397,7 @@ class OpenAIServingCompletion(GenerateBaseServing):
                     finish_reason = output.finish_reason
                     stop_reason = output.stop_reason
 
-                    self._raise_if_error(finish_reason, request_id)
+                    self._raise_if_error(finish_reason, request_id, output.stop_reason)
 
                     chunk = CompletionStreamResponse(
                         id=request_id,
@@ -483,6 +483,9 @@ class OpenAIServingCompletion(GenerateBaseServing):
                     usage=final_usage_info,
                     system_fingerprint=self.system_fingerprint,
                     metrics=stream_per_request_metrics,
+                    kv_transfer_params=last_res.kv_transfer_params
+                    if last_res is not None
+                    else None,
                 )
                 final_usage_data = final_usage_chunk.model_dump_json(
                     exclude_unset=False, exclude_none=True
@@ -527,7 +530,9 @@ class OpenAIServingCompletion(GenerateBaseServing):
             out_logprobs: GenericSequence[dict[int, Logprob] | None] | None
 
             for output in final_res.outputs:
-                self._raise_if_error(output.finish_reason, request_id)
+                self._raise_if_error(
+                    output.finish_reason, request_id, output.stop_reason
+                )
 
                 assert request.max_tokens is not None
                 if request.echo:

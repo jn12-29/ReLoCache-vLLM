@@ -4,11 +4,10 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from vllm.config.ec_manager_config import EncoderCacheManagerMetadata
 from vllm.multimodal.utils import strip_covered_mm_data
-from vllm.v1.core.pic import PICLayout, pack_prompt_embeds
 
 if TYPE_CHECKING:
     import numpy as np
@@ -49,7 +48,7 @@ class NewRequestData:
 
     # Only used for v2 model runner.
     prefill_token_ids: list[int] | None = None
-    pic_layout: PICLayout | None = None
+    worker_metadata: dict[str, Any] | None = None
 
     @classmethod
     def from_request(
@@ -60,7 +59,7 @@ class NewRequestData:
         uses_mrope: bool = False,
         uses_xdrope: bool = False,
     ) -> "NewRequestData":
-        prompt_embeds, prompt_is_token_ids = pack_prompt_embeds(request)
+        prompt_embeds, prompt_is_token_ids = request.get_prompt_embeds()
         return cls(
             req_id=request.request_id,
             prompt_token_ids=request.prompt_token_ids,
@@ -77,8 +76,8 @@ class NewRequestData:
             lora_request=request.lora_request,
             prompt_embeds=prompt_embeds,
             prompt_is_token_ids=prompt_is_token_ids,
+            worker_metadata=request.worker_metadata,
             prefill_token_ids=prefill_token_ids,
-            pic_layout=request.pic_layout,
         )
 
     @property

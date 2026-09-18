@@ -324,6 +324,11 @@ class FileSystemTierManager(SecondaryTierManager):
         """Block until all in-flight transfers in the threadpool finish."""
         self._pool.wait_idle()
 
+    def inspect_keys(self, keys, req_context: ReqContext):
+        results = [self.lookup(key, req_context).name for key in keys]
+        self._lookup_manager.flush()
+        return results
+
     def on_request_finished(self, req_context: ReqContext) -> None:
         self._lookup_manager.cleanup(req_context.req_id)
 

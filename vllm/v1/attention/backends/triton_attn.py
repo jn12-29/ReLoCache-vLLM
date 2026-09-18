@@ -3,7 +3,7 @@
 """High-Performance Triton-only Attention layer."""
 
 from dataclasses import dataclass, replace
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import torch
 
@@ -97,6 +97,9 @@ class TritonAttentionMetadata:
     # Stable per-sequence GPU pointer table; zero selects ordinary attention.
     # Each target is int64[R, 4]: cumulative entry end, physical slot start,
     # canonical start, local float32 position pointer (zero for contiguous positions).
+    range_end: Any = None
+    range_map: Any = None
+    key_transform: Any = None
     logical_ranges: torch.Tensor | None = None
     logical_range_counts: torch.Tensor | None = None
     query_positions: torch.Tensor | None = None
@@ -660,6 +663,9 @@ class TritonAttentionImpl(AttentionImpl):
         mm_prefix_range_tensor = attn_metadata.mm_prefix_range_tensor
 
         unified_attention(
+            range_end=attn_metadata.range_end,
+            range_map=attn_metadata.range_map,
+            key_transform=attn_metadata.key_transform,
             logical_ranges=attn_metadata.logical_ranges,
             logical_range_counts=attn_metadata.logical_range_counts,
             query_positions=attn_metadata.query_positions,

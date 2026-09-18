@@ -176,25 +176,6 @@ def _store_output_td(
 
 
 @triton.jit
-def _logical_visible_end(ranges, range_count, last_query):
-    lo, hi = 0, range_count
-    while lo < hi:
-        mid = (lo + hi) // 2
-        start = tl.load(ranges + mid * 4 + 2)
-        before = start <= last_query
-        lo = tl.where(before, mid + 1, lo)
-        hi = tl.where(before, hi, mid)
-    last_range = lo - 1
-    end = tl.load(ranges + last_range * 4)
-    start = tl.load(ranges + last_range * 4 + 2)
-    entries = tl.load(ranges + last_range * 4 + 3)
-    previous = tl.load(ranges + (last_range - 1) * 4, mask=last_range > 0, other=0)
-    return tl.where(
-        entries == 0, tl.minimum(end, previous + last_query - start + 1), end
-    ).to(tl.int32)
-
-
-@triton.jit
 def kernel_unified_attention(
     # Output destination for the 2D path.  In 3D mode per-segment partials
     # go to the ``segm_*`` tensors (see bottom of signature) and
@@ -314,6 +295,9 @@ def kernel_unified_attention(
     rope_inv_freq_ptr=None,
     cos_sin_cache_ptr=None,
     USE_LOGICAL_RANGES: tl.constexpr = False,
+    RANGE_END: tl.constexpr = None,
+    RANGE_MAP: tl.constexpr = None,
+    KEY_TRANSFORM: tl.constexpr = None,
     ROTARY_DIM: tl.constexpr = 0,
     ROPE_IS_NEOX_STYLE: tl.constexpr = True,
     ROPE_ATTENTION_SCALING: tl.constexpr = 1.0,
@@ -361,7 +345,7 @@ def kernel_unified_attention(
             last_query = tl.load(
                 query_positions_ptr + cur_batch_in_all_start_index + last_row
             )
-            seq_len = _logical_visible_end(ranges, range_count, last_query)
+            seq_len = RANGE_END(ranges, range_count, last_query)
 
     if IS_3D:
         tiles_per_segment = cdiv_fn(seq_len, NUM_SEGMENTS_PER_SEQ * TILE_SIZE)
@@ -476,7 +460,7 @@ def kernel_unified_attention(
     if USE_LOGICAL_RANGES:  # noqa: SIM102 - constexpr guards runtime-only range pointers
         if has_ranges:
             # Locate the last logical range used by this Q tile. Future resident
-            # PIC ranges are not visited or loaded, including in full prefill.
+            # Future ranges are not visited or loaded, including in full prefill.
             max_seq_prefix_len = seq_len
             loop_lo = segm_idx * tiles_per_segment if IS_3D else 0
             loop_hi = tl.cdiv(max_seq_prefix_len, TILE_SIZE)
@@ -491,35 +475,9 @@ def kernel_unified_attention(
         logical_k = seq_offset.to(tl.float32)
         if USE_LOGICAL_RANGES:  # noqa: SIM102 - constexpr guards runtime-only range pointers
             if has_ranges:
-                # Binary search the ordered range ends for each live entry.
-                # Alignment PAD has no entry ordinal and incurs no K/V load.
-                lo = tl.full((TILE_SIZE,), 0, tl.int32)
-                hi = tl.full((TILE_SIZE,), range_count, tl.int32)
-                span = range_count
-                while span > 0:
-                    mid = (lo + hi) // 2
-                    end = tl.load(ranges + mid * 4, mask=mid < range_count, other=0)
-                    before = (mid < range_count) & (end <= seq_offset)
-                    lo = tl.where(before, mid + 1, lo)
-                    hi = tl.where(before, hi, mid)
-                    span = span // 2
-                previous = tl.load(
-                    ranges + (lo - 1) * 4, mask=tile_mask & (lo > 0), other=0
+                cache_offset, logical_k = RANGE_MAP(
+                    ranges, range_count, seq_offset, tile_mask, TILE_SIZE
                 )
-                offset = seq_offset - previous
-                first = tl.load(ranges + lo * 4 + 1, mask=tile_mask, other=0)
-                start = tl.load(ranges + lo * 4 + 2, mask=tile_mask, other=0)
-                entries = tl.load(ranges + lo * 4 + 3, mask=tile_mask, other=0)
-                has_entry_positions = entries != 0
-                local_positions = tl.load(
-                    entries.to(tl.pointer_type(tl.float32)) + offset,
-                    mask=tile_mask & has_entry_positions,
-                    other=0,
-                )
-                logical_k = start + tl.where(
-                    has_entry_positions, local_positions, offset
-                )
-                cache_offset = first + offset
 
         physical_block_idx = tl.load(
             block_tables_ptr + block_table_offset + cache_offset // BLOCK_SIZE,
@@ -593,46 +551,21 @@ def kernel_unified_attention(
             )
         K = _cast_kv_tile(K_load, Q, k_scale, KV_QUANT_MODE)
         V = _cast_kv_tile(V_load, Q, v_scale, KV_QUANT_MODE)
-        if ROTARY_DIM:
-            if ROPE_IS_NEOX_STYLE:
-                partner_dim = (offs_d + ROTARY_DIM // 2) % ROTARY_DIM
-                frequency_index = offs_d % (ROTARY_DIM // 2)
-                sign = tl.where(offs_d < ROTARY_DIM // 2, -1.0, 1.0)
-            else:
-                partner_dim = offs_d ^ 1
-                frequency_index = offs_d // 2
-                sign = tl.where(offs_d % 2 == 0, -1.0, 1.0)
-            # Reuse the loaded K tile in registers, as MiniPIC reuses its two
-            # half-head tiles. No second KV load or in-place cache rotation.
-            partner = tl.gather(
-                K.to(tl.float32),
-                tl.broadcast_to(partner_dim[:, None], (HEAD_SIZE_PADDED, TILE_SIZE)),
-                axis=0,
+        if KEY_TRANSFORM is not None:
+            K = KEY_TRANSFORM(
+                K,
+                logical_k,
+                offs_d,
+                tile_mask,
+                rope_inv_freq_ptr,
+                cos_sin_cache_ptr,
+                Q.dtype,
+                ROTARY_DIM,
+                ROPE_IS_NEOX_STYLE,
+                ROPE_ATTENTION_SCALING,
+                HEAD_SIZE_PADDED,
+                TILE_SIZE,
             )
-            if cos_sin_cache_ptr is not None:
-                position = logical_k.to(tl.int32)
-                offset = position[None, :] * ROTARY_DIM + frequency_index[:, None]
-                cosine = tl.load(
-                    cos_sin_cache_ptr + offset,
-                    mask=(offs_d < ROTARY_DIM)[:, None] & tile_mask[None, :],
-                    other=0,
-                ).to(tl.float32)
-                sine = tl.load(
-                    cos_sin_cache_ptr + offset + ROTARY_DIM // 2,
-                    mask=(offs_d < ROTARY_DIM)[:, None] & tile_mask[None, :],
-                    other=0,
-                ).to(tl.float32)
-            else:
-                frequency = tl.load(
-                    rope_inv_freq_ptr + frequency_index,
-                    mask=offs_d < ROTARY_DIM,
-                    other=0.0,
-                )
-                angle = frequency[:, None] * logical_k[None, :]
-                cosine = tl.cos(angle) * ROPE_ATTENTION_SCALING
-                sine = tl.sin(angle) * ROPE_ATTENTION_SCALING
-            rotated = K.to(tl.float32) * cosine + partner * sign[:, None] * sine
-            K = tl.where((offs_d < ROTARY_DIM)[:, None], rotated, K).to(Q.dtype)
 
         # Per-(token, head) scales for INT8 / FP8 per-token-head modes.
         if USE_PER_TOKEN_HEAD_SCALES:
@@ -854,6 +787,7 @@ def reduce_segments(
     logical_range_counts_ptr=None,
     query_positions_ptr=None,
     USE_LOGICAL_RANGES: tl.constexpr = False,
+    RANGE_END: tl.constexpr = None,
 ):
     query_token_idx = tl.program_id(0)
     query_head_idx = tl.program_id(1)
@@ -868,7 +802,7 @@ def reduce_segments(
         address = tl.load(logical_ranges_ptr + seq_idx)
         if address != 0:
             last_query = tl.load(query_positions_ptr + query_token_idx)
-            seq_len = _logical_visible_end(
+            seq_len = RANGE_END(
                 address.to(tl.pointer_type(tl.int64)),
                 tl.load(logical_range_counts_ptr + seq_idx),
                 last_query,
@@ -1006,6 +940,9 @@ def unified_attention(
     # Gemma4: clamp mm_prefix bidirectional ranges by the sliding window.
     # Default False keeps the original behavior for every other model.
     mm_prefix_clamp_sliding_window: bool = False,
+    range_end=None,
+    range_map=None,
+    key_transform=None,
     logical_ranges=None,
     logical_range_counts=None,
     query_positions=None,
@@ -1329,6 +1266,9 @@ def unified_attention(
         USE_TD=use_td,
         USE_TD_QO=use_td_qo,
         MM_PREFIX_CLAMP_SW=mm_prefix_clamp_sliding_window,
+        RANGE_END=range_end,
+        RANGE_MAP=range_map,
+        KEY_TRANSFORM=key_transform,
         logical_ranges_ptr=logical_ranges,
         logical_range_counts_ptr=logical_range_counts,
         query_positions_ptr=query_positions,
@@ -1343,6 +1283,7 @@ def unified_attention(
 
     if use_3d:
         reduce_segments[(q.shape[0], num_query_heads)](
+            RANGE_END=range_end,
             logical_ranges_ptr=logical_ranges,
             logical_range_counts_ptr=logical_range_counts,
             query_positions_ptr=query_positions,

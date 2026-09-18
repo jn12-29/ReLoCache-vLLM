@@ -692,6 +692,7 @@ class CompletionResponseStreamChoice(OpenAIBaseModel):
 
 
 class CompletionStreamResponse(OpenAIBaseModel):
+    kv_transfer_params: dict[str, Any] | None = None
     id: str = Field(default_factory=lambda: f"cmpl-{random_uuid()}")
     object: str = "text_completion"
     created: int = Field(default_factory=lambda: int(time.time()))

@@ -78,6 +78,7 @@ class TransferJobStatus:
     keys: set[OffloadKey]
     is_store: bool
     # Store source blocks fenced after the request finishes.
+    started: float = field(default_factory=time.monotonic)
     deferred_fence_block_ids: list[int] | None = None
     # Store source blocks fenced when the transfer is created.
     fenced_block_ids: list[int] | None = None
@@ -391,7 +392,7 @@ class RequestOffloadState:
             self.config.kv_group_configs, self.group_states
         ):
             previous_keys = None
-            if self.req.reusable_spans:
+            if self.req.required_cached_tokens:
                 previous_keys = group_state.offload_keys
                 group_state.offload_keys = []
             for req_block_hash in islice(
@@ -530,7 +531,8 @@ def _create_req_context(req: Request) -> ReqContext:
         req_id=req.request_id,
         kv_transfer_params=params,
         load_tier_filter=load_filter,
-        require_load=bool(req.reusable_spans),
+        require_load=bool(req.required_cached_tokens),
+        transfer_stats=req.cache_transfer_stats,
     )
 
 
@@ -1762,6 +1764,18 @@ class OffloadingConnectorScheduler:
         self._current_batch_allocated_block_ids = set()
         return meta
 
+    def has_request_work(self, request_id: str) -> bool:
+        return request_id in self._req_status or self.manager.has_pending_request(
+            request_id
+        )
+
+    def has_request_transfers(self, request_id: str) -> bool:
+        status = self._req_status.get(request_id)
+        return bool(status and status.transfer_jobs)
+
+    def lookup_key(self, request_id: str, key: OffloadKey) -> LookupResult:
+        return self.manager.lookup(key, self._req_status[request_id].req_context)
+
     def has_pending_push_work(self) -> bool:
         """Whether the engine must keep stepping.
 
@@ -1832,6 +1846,16 @@ class OffloadingConnectorScheduler:
                 self.manager.complete_store(job_status.keys, req_status.req_context)
             else:
                 self.manager.complete_load(job_status.keys, req_status.req_context)
+                stats = req_status.req_context.transfer_stats
+                stats["cpu_load_jobs"] = stats.get("cpu_load_jobs", 0) + 1
+                stats["cpu_loaded_pages"] = stats.get("cpu_loaded_pages", 0) + len(
+                    job_status.keys
+                )
+                stats["cpu_load_seconds"] = (
+                    stats.get("cpu_load_seconds", 0.0)
+                    + time.monotonic()
+                    - job_status.started
+                )
                 if self._chunks_being_loaded:
                     self._chunks_being_loaded.difference_update(job_status.keys)
             if self._block_id_to_pending_jobs:

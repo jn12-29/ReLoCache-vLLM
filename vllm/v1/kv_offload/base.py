@@ -94,6 +94,7 @@ class ReqContext:
     load_tier_filter: TierFilter = TierFilter.ALL
     # Mandatory cached inputs cannot be recomputed when promotion is capacity-bound.
     require_load: bool = False
+    transfer_stats: dict[str, Any] = field(default_factory=dict)
     # Per-request scratch space keyed by value type, so a tier can parse
     # kv_transfer_params once (in on_new_request) and read the result back
     # on later calls for the same request.
@@ -223,6 +224,16 @@ class OffloadingKVEventsConfig:
 
 
 class OffloadingManager(ABC):
+    def has_pending_request(self, request_id: str) -> bool:
+        return False
+
+    def finish_inspection(self, req_context: ReqContext) -> None:
+        return None
+
+    def inspect_keys(self, keys, req_context: ReqContext):
+        """Inspect residency without triggering promotion to another tier."""
+        return {"cpu": [self.lookup(key, req_context).name for key in keys]}
+
     @abstractmethod
     def lookup(self, key: OffloadKey, req_context: ReqContext) -> LookupResult:
         """

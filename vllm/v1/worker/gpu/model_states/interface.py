@@ -46,6 +46,10 @@ class ModelState(ABC):
     supports_prompt_embeds: ClassVar[bool] = False
     """Whether this state implements user-provided prompt embeddings."""
 
+    def get_position_mapping(self):
+        """Optional storage-to-logical position mapping and output buffer."""
+        return None, None
+
     def __init__(
         self,
         vllm_config: VllmConfig,

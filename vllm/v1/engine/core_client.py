@@ -1604,7 +1604,9 @@ class DPLBAsyncMPClient(DPAsyncMPClient):
                 for engine in self.core_engines
             ]
         )
-        return any(results) if method == "reusable_storage_pending" else results[0]
+        if method == "storage_pending":
+            return any(results)
+        return results if method == "extension_call" else results[0]
 
     @staticmethod
     async def process_engine_outputs(

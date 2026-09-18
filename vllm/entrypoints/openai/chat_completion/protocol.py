@@ -164,6 +164,7 @@ class ChatCompletionResponseStreamChoice(OpenAIBaseModel):
 
 
 class ChatCompletionStreamResponse(OpenAIBaseModel):
+    kv_transfer_params: dict[str, Any] | None = None
     id: str = Field(default_factory=lambda: f"chatcmpl-{random_uuid()}")
     object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
     created: int = Field(default_factory=lambda: int(time.time()))

@@ -16,7 +16,6 @@ from vllm.lora.request import LoRARequest
 from vllm.multimodal.inputs import MultiModalFeatureSpec
 from vllm.pooling_params import PoolingParams
 from vllm.sampling_params import SamplingParams
-from vllm.v1.core.pic import ReusableContent, ReusableInput
 from vllm.v1.metrics.stats import (
     PrefillStats,
     RequestSpecDecodeMetrics,
@@ -105,6 +104,13 @@ class EngineCoreReadyResponse:
     supports_draft_weight_updates: bool = False
 
 
+class RequestExtension(msgspec.Struct):
+    """Extension-owned metadata with native tensor IPC transport."""
+
+    data: dict[str, Any]
+    tensors: dict[str, torch.Tensor] = msgspec.field(default_factory=dict)
+
+
 class EngineCoreRequest(
     msgspec.Struct,
     array_like=True,  # type: ignore[call-arg]
@@ -121,8 +127,7 @@ class EngineCoreRequest(
     cache_salt: str | None
     data_parallel_rank: int | None
     prompt_embeds: torch.Tensor | None = None
-    reusable_input: ReusableInput | None = None
-    pic_compile: ReusableContent | None = None
+    extension: RequestExtension | None = None
 
     # Per-position mask for mixed-mode inputs (e.g chat completion with
     # prompt_embeds content parts). `True` means the position is a real

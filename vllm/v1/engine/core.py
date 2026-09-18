@@ -105,7 +105,10 @@ _R = TypeVar("_R")  # Return type for collective_rpc
 class EngineCore:
     """Inner loop of vLLM's Engine."""
 
-    def reusable_storage_pending(self) -> bool:
+    def extension_call(self, method: str, args: list[Any]):
+        return self.scheduler.extension_call(method, *args)
+
+    def storage_pending(self) -> bool:
         return self.scheduler.has_requests()
 
     def __init__(
@@ -994,25 +997,7 @@ class EngineCore:
                 request.mm_features
             )
 
-        from vllm.v1.core.sched.scheduler import Scheduler
-
-        model = self.vllm_config.model_config
-        groups = cast(Scheduler, self.scheduler).kv_cache_config.kv_cache_groups
-        if request.reusable_input is not None or request.pic_compile is not None:
-            from relocache.backends.vllm.compiler import prepare_content
-
-        if request.reusable_input is not None:
-            request.reusable_input.contents = [
-                prepare_content(content, model, groups)
-                for content in request.reusable_input.contents
-            ]
-        params = request.sampling_params
-        if request.pic_compile is not None and params is not None:
-            params.extra_args = {
-                **(params.extra_args or {}),
-                "pic_compile": prepare_content(request.pic_compile, model, groups),
-            }
-        req = Request.from_engine_core_request(request, self.request_block_hasher)
+        req = self.scheduler.create_request(request, self.request_block_hasher)
         if req.use_structured_output:
             # Note on thread safety: no race condition.
             # `grammar_init` is only invoked in input processing thread. For

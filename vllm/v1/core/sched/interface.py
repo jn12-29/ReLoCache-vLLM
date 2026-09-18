@@ -36,6 +36,14 @@ class PauseState(enum.IntEnum):
 
 
 class SchedulerInterface(ABC):
+    def create_request(self, request, block_hasher):
+        from vllm.v1.request import Request
+
+        return Request.from_engine_core_request(request, block_hasher)
+
+    def extension_call(self, method: str, *args):
+        raise NotImplementedError(method)
+
     @abstractmethod
     def __init__(
         self,

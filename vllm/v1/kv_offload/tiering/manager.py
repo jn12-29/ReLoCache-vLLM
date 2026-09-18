@@ -80,6 +80,7 @@ class RequestState:
 class JobMetadata(NamedTuple):
     transfer_job: TransferJob
     tier_idx: int
+    started: float
 
 
 class CPUPrimaryTierOffloadingManager(CPUOffloadingManager):
@@ -242,7 +243,7 @@ class TieringOffloadingManager(OffloadingManager):
         return job_id
 
     def _register_job(self, transfer_job: TransferJob, tier_idx: int) -> None:
-        job_metadata = JobMetadata(transfer_job, tier_idx)
+        job_metadata = JobMetadata(transfer_job, tier_idx, time.monotonic())
         self._jobs[transfer_job.job_id] = job_metadata
         self._metrics.on_job_registered(job_metadata)
 
@@ -323,6 +324,18 @@ class TieringOffloadingManager(OffloadingManager):
                 self._metrics.on_job_finished(job_metadata, completed_job)
 
                 if transfer_job.is_promotion:
+                    stats = transfer_job.req_context.transfer_stats
+                    name = f"{tier.tier_type}:{i}"
+                    current = stats.setdefault(
+                        name, {"load_jobs": 0, "loaded_pages": 0, "load_seconds": 0.0}
+                    )
+                    current["load_jobs"] += 1
+                    current["loaded_pages"] += (
+                        len(transfer_job.keys)
+                        if completed_job.success
+                        else len(completed_job.successful_keys or ())
+                    )
+                    current["load_seconds"] += time.monotonic() - job_metadata.started
                     # secondary→primary transfer (promotion) completed.
                     # Make blocks available in primary tier.
                     self._complete_promotion(job_metadata, completed_job)
@@ -332,6 +345,23 @@ class TieringOffloadingManager(OffloadingManager):
                     self.primary_tier.complete_read(
                         transfer_job.keys, transfer_job.req_context
                     )
+
+    def has_pending_request(self, request_id: str) -> bool:
+        return request_id in self._req_state or any(
+            job.transfer_job.req_context.req_id == request_id
+            for job in self._jobs.values()
+        )
+
+    def finish_inspection(self, req_context: ReqContext) -> None:
+        for tier in self.secondary_tiers:
+            tier.finish_inspection(req_context)
+
+    def inspect_keys(self, keys, req_context: ReqContext):
+        self._maybe_process_finished_jobs()
+        result = {"cpu": [self.primary_tier.lookup(k, req_context).name for k in keys]}
+        for index, tier in enumerate(self.secondary_tiers):
+            result[f"{tier.tier_type}:{index}"] = tier.inspect_keys(keys, req_context)
+        return result
 
     @override
     def lookup(
