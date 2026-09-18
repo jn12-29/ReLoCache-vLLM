@@ -995,10 +995,12 @@ class EngineCore:
             )
 
         from vllm.v1.core.sched.scheduler import Scheduler
-        from vllm.v1.engine.pic_compiler import prepare_content
 
         model = self.vllm_config.model_config
         groups = cast(Scheduler, self.scheduler).kv_cache_config.kv_cache_groups
+        if request.reusable_input is not None or request.pic_compile is not None:
+            from relocache.backends.vllm.compiler import prepare_content
+
         if request.reusable_input is not None:
             request.reusable_input.contents = [
                 prepare_content(content, model, groups)

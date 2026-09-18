@@ -341,7 +341,7 @@ class InputProcessor:
             isinstance(params, SamplingParams)
             and (params.extra_args or {}).get("pic_compile") is not None
         ):
-            from vllm.v1.engine.pic_compiler import compile_prompt
+            from relocache.backends.vllm.compiler import compile_prompt
 
             decoder_input = cast(
                 SingletonInput,

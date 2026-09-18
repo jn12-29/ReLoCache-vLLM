@@ -96,7 +96,7 @@ def content(block_hash, compiled_id="pic"):
 
 
 def native_content(manager, name, tokens, method="writer", *, dtype=torch.float32):
-    from vllm.v1.engine.pic_compiler import prepare_content
+    from relocache.backends.vllm.compiler import prepare_content
 
     model = SimpleNamespace(
         dtype=dtype, hf_text_config=SimpleNamespace(num_hidden_layers=1)
@@ -150,10 +150,11 @@ def test_engine_builds_pages_from_sources_and_transports_only_layout(
     num_tokens,
     soft_lengths,
 ):
+    from relocache.backends.vllm.compiler import compile_inputs
+
     from vllm.v1.core.pic import PICLayout, ReusableInput
     from vllm.v1.engine import EngineCoreRequest
     from vllm.v1.engine.core import EngineCore
-    from vllm.v1.engine.pic_compiler import compile_inputs
     from vllm.v1.serial_utils import MsgpackDecoder, MsgpackEncoder
 
     engine = EngineCore.__new__(EngineCore)
@@ -237,9 +238,10 @@ def test_engine_builds_pages_from_sources_and_transports_only_layout(
 
 
 def test_compile_padding_is_checked_against_native_prompt_limit(input_processor):
+    from relocache.backends.vllm.compiler import compile_inputs
+
     from vllm.exceptions import VLLMValidationError
     from vllm.inputs import tokens_input
-    from vllm.v1.engine.pic_compiler import compile_inputs
 
     ids = [1] * 63
     source = {
@@ -259,7 +261,7 @@ def test_compile_padding_is_checked_against_native_prompt_limit(input_processor)
 
 
 def test_writer_embeddings_and_their_placement_separate_native_pages(manager):
-    from vllm.v1.engine.pic_compiler import prepare_content
+    from relocache.backends.vllm.compiler import prepare_content
 
     model = SimpleNamespace(
         dtype=torch.float32, hf_text_config=SimpleNamespace(num_hidden_layers=1)
@@ -375,7 +377,7 @@ def test_native_prefix_and_repeated_pic_share_storage(manager):
 
 
 def test_native_writer_hashes_and_reader_use_the_same_pages(manager):
-    from vllm.v1.engine.pic_compiler import compile_inputs, compile_token_ids
+    from relocache.backends.vllm.compiler import compile_inputs, compile_token_ids
 
     metadata = native_content(manager, "independent", [20, 21, 22, 23, 24])
     hashes = metadata["groups"][0]["block_hashes"]
@@ -622,8 +624,9 @@ def test_missing_documents_enqueue_together_but_hits_and_pending_loads_do_not(
     manager,
     already_compiling,
 ):
+    from relocache.backends.vllm.compiler import compile_inputs, compile_token_ids
+
     from vllm.v1.core.pic import defer_missing_content
-    from vllm.v1.engine.pic_compiler import compile_inputs, compile_token_ids
     from vllm.v1.kv_offload.base import ReqContext, make_offload_key
 
     documents: list[dict[str, Any]] = [

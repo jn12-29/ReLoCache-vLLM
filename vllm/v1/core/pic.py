@@ -82,7 +82,8 @@ def defer_missing_content(
     scheduler, request: "Request", num_computed_tokens: int
 ) -> bool:
     """Enqueue all confirmed missing documents on this Reader's native engine."""
-    from vllm.v1.engine.pic_compiler import compile_inputs, compile_prompt
+    from relocache.backends.vllm.compiler import compile_inputs, compile_prompt
+
     from vllm.v1.kv_offload.base import LookupResult, make_offload_key
     from vllm.v1.request import Request
 

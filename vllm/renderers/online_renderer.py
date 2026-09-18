@@ -161,6 +161,9 @@ class OnlineRenderer:
             ]
             | None
         ) = None
+        self.completion_input_renderer: (
+            Callable[..., Awaitable[list[EngineInput] | None]] | None
+        ) = None
         self.supports_browsing = False
         self.supports_code_interpreter = False
 
@@ -563,6 +566,13 @@ class OnlineRenderer:
             return self.create_error_response(
                 "prompt_logprobs is not compatible with prompt embeds."
             )
+
+        if self.completion_input_renderer is not None:
+            custom_input = await self.completion_input_renderer(
+                self.renderer, request, skip_mm_cache=skip_mm_cache
+            )
+            if custom_input is not None:
+                return custom_input
 
         engine_inputs = await self.preprocess_completion(
             request,
