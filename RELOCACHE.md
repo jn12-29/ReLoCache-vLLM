@@ -4,6 +4,9 @@ This fork provides native execution extensions for
 [ReLoCache](https://github.com/jn12-29/ReLoCache), a PIC-based reusable-content
 serving package. It is maintained separately from upstream vLLM.
 
+Training algorithms and research evaluation are maintained in
+[SemPIC: Learning Semantic Position-Independent KV Caches](https://github.com/jn12-29/SemPIC).
+
 ## Install and run
 
 Use the parent repository's recursive checkout and locked environment:

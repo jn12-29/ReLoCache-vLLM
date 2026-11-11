@@ -4,6 +4,7 @@
 > [ReLoCache](https://github.com/jn12-29/ReLoCache) for position-independent KV
 > caching. For installation, supported scope, changes, and issue reporting, see
 > [RELOCACHE.md](RELOCACHE.md). The upstream vLLM README follows below.
+> Training algorithm code: [SemPIC](https://github.com/jn12-29/SemPIC).
 
 <p align="center">
   <picture>
