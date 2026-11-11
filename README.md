@@ -1,10 +1,13 @@
 <!-- markdownlint-disable MD001 MD041 -->
 
+| Training algorithms | Inference backend |
+| --- | --- |
+| **[SemPIC](https://github.com/jn12-29/SemPIC)** | **[ReLoCache-vLLM](https://github.com/jn12-29/ReLoCache-vLLM)** |
+
 > **ReLoCache-vLLM** is the vLLM fork used by
 > [ReLoCache](https://github.com/jn12-29/ReLoCache) for position-independent KV
 > caching. For installation, supported scope, changes, and issue reporting, see
 > [RELOCACHE.md](RELOCACHE.md). The upstream vLLM README follows below.
-> Training algorithm code: [SemPIC](https://github.com/jn12-29/SemPIC).
 
 <p align="center">
   <picture>
