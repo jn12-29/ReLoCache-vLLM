@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+# Modified for ReLoCache; see RELOCACHE.md.
 import itertools
 import time
 from collections import defaultdict, deque

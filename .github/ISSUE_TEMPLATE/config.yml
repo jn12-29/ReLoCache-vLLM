@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: ReLoCache integration
+    url: https://github.com/jn12-29/ReLoCache/issues
+    about: Report PIC serving and ReLoCache-vLLM integration issues here
   - name: Questions
     url: https://discuss.vllm.ai
     about: Ask questions and discuss with other vLLM community members

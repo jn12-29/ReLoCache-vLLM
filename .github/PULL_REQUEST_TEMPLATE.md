@@ -1,4 +1,8 @@
 <!-- markdownlint-disable -->
+For ReLoCache integration changes, link the corresponding
+[ReLoCache issue](https://github.com/jn12-29/ReLoCache/issues) and include the
+parent integration test results. Follow the upstream checklist below.
+
 PLEASE FILL IN THE PR DESCRIPTION HERE ENSURING ALL CHECKLIST ITEMS (AT THE BOTTOM) HAVE BEEN CONSIDERED.
 
 ## Purpose

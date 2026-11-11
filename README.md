@@ -1,4 +1,10 @@
 <!-- markdownlint-disable MD001 MD041 -->
+
+> **ReLoCache-vLLM** is the vLLM fork used by
+> [ReLoCache](https://github.com/jn12-29/ReLoCache) for position-independent KV
+> caching. For installation, supported scope, changes, and issue reporting, see
+> [RELOCACHE.md](RELOCACHE.md). The upstream vLLM README follows below.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vllm-project/vllm/main/docs/assets/logos/vllm-logo-text-dark.png">
